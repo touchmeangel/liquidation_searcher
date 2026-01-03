@@ -1,15 +1,15 @@
+mod events;
+mod macros;
+mod wrapped_i80f48;
+
+use events::*;
+use wrapped_i80f48::*;
+
 use solana_client::nonblocking::pubsub_client::PubsubClient;
 use solana_client::rpc_config::{CommitmentConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use tokio_stream::StreamExt;
-use anchor_lang::prelude::*;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
-
-#[event]
-pub struct HealthPulseEvent {
-  pub account: Pubkey,
-  // pub health_cache: HealthCache,
-}
 
 pub struct Marginfi {
   pubsub: PubsubClient
@@ -44,7 +44,7 @@ impl Marginfi {
 
       for log in &response.value.logs {
         if let Some(event_data) = log.strip_prefix("Program data: ") {
-          if let Ok(event) = parse_anchor_event::<HealthPulseEvent>(event_data) {
+          if let Ok(event) = parse_anchor_event::<events::HealthPulseEvent>(event_data) {
             println!("HEALTH PULSE!");
             println!("  Account: {}", event.account);
             println!("  Transaction: {}", signature);
@@ -56,6 +56,40 @@ impl Marginfi {
 
     anyhow::Ok(())
   }
+
+  // lending_account_liquidate // legacy
+  // start_liquidation, end_liquidation // receivership
+  // lending_account_pulse_health
+
+  // Example:
+  // ```
+  // Token A: Asset Weight Initial = 90%, Asset Weight Maintenance = 95%
+  // Token B: Liability Weight Initial = 110%, Liability Weight Maintenance = 105%
+  
+  // Susie deposits $100 of Token A
+  //     Susie's deposit is worth: 100 * .9 = $90 for Initial (borrowing) purposes.
+  
+  // Susie wants to borrow as much B as possible
+  //     The max borrow of B is: 90/1.1 = $81.82
+  
+  // For Maintenance purposes, Susie has 100 * .95 - 81.82 * 1.05 = $9.089 left in liquidation buffer.
+  // ````
+  
+  // Now let's imagine Asset A drops in value by 5%, and B stays the same:
+  
+  // ```
+  // Susie's deposit in A is now worth $95
+  
+  // For Maintenance purposes, Susie has 95 * .95 - 81.82 * 1.05 = $4.339 left in liquidation buffer.
+  // ````
+  
+  // Now let's imagine Asset A drops in value by 10% (net), and B stays the same:
+  
+  // ```
+  // Susie's deposit in A is now worth $90
+  
+  // For Maintenance purposes, Susie has 90 * .95 - 81.82 * 1.05 = -$0.411, Susie can be liquidated!
+  // ````
 }
 
 fn parse_anchor_event<T: anchor_lang::AnchorDeserialize>(data: &str) -> anyhow::Result<T> {
