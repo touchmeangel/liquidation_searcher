@@ -10,4 +10,6 @@ serde = { version = "1.0.215", features = ["derive"] }
 tokio = { version = "1.44.2", features = ["full"] }
 anyhow = "1.0.100"
 solana-client = "3.1.5"
-solana-sdk = "3.0.0"
+anchor-lang = "0.32.1"
+tokio-stream = "0.1.17"
+base64 = "0.22.1"
