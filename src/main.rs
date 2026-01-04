@@ -11,8 +11,8 @@ async fn main() {
   let result: anyhow::Result<()> = async move {
     let config = Config::open().await?;
 
-    let marginfi = Marginfi::new(config.ws_url).await?;
-    marginfi.listen().await?;
+    let marginfi = Marginfi::new(config.url, config.ws_url).await?;
+    marginfi.listen_for_targets().await?;
     
     Ok(())
   }.await;

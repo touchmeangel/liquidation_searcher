@@ -1,30 +1,46 @@
+mod types;
 mod consts;
 mod events;
 mod macros;
 mod wrapped_i80f48;
 
+use std::rc::Rc;
+
+use bytemuck::Pod;
 use consts::*;
 use events::*;
 use wrapped_i80f48::*;
 
 use solana_client::nonblocking::pubsub_client::PubsubClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::{CommitmentConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
+use anchor_client::{Client, Cluster, Program};
+use anchor_client::solana_sdk::signature::Keypair;
+use solana_sdk::pubkey::Pubkey;
 use tokio_stream::StreamExt;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
+use crate::marginfi::types::MarginfiAccount;
 
 pub struct Marginfi {
-  pubsub: PubsubClient
+  pubsub: PubsubClient,
+  rpc_client: RpcClient,
+  client: Client<Rc<Keypair>>,
+  program: Program<Rc<Keypair>>
 }
 
 impl Marginfi {
-  pub async fn new(ws_url: String) -> anyhow::Result<Self> {
+  pub async fn new(http_url: String, ws_url: String) -> anyhow::Result<Self> {
     let pubsub = PubsubClient::new(ws_url).await?;
+    let payer = Keypair::new();
+    let rpc_client = RpcClient::new(http_url);
+    let client = Client::new(Cluster::Mainnet, Rc::new(payer));
+    let program = client.program(MARGINFI_PROGRAM_ID)?;
     
-    anyhow::Ok(Self { pubsub })
+    anyhow::Ok(Self { pubsub, rpc_client, client, program })
   }
 
-  pub async fn listen(&self) -> anyhow::Result<()> {
+  pub async fn listen_for_targets(&self) -> anyhow::Result<()> {
     let (mut logs, _unsub) = self.pubsub
         .logs_subscribe(
             RpcTransactionLogsFilter::Mentions(vec![MARGINFI_PROGRAM_ID.to_string()]),
@@ -46,11 +62,30 @@ impl Marginfi {
 
       for log in &response.value.logs {
         if let Some(event_data) = log.strip_prefix("Program data: ") {
-          if let Ok(event) = parse_anchor_event::<HealthPulseEvent>(event_data) {
-            println!("HEALTH PULSE!");
-            println!("  Account: {}", event.account);
+          if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
+            println!("WITHDRAW!");
+            println!("  Account: {}", event.header.marginfi_account);
+            println!("  Mint: {}", event.mint);
             println!("  Transaction: {}", signature);
+            
+            let sdk_pubkey = Pubkey::new_from_array(event.header.marginfi_account.to_bytes());
+            let account: MarginfiAccount = match parse_account(&self.rpc_client, &sdk_pubkey).await {
+              Ok(account) => account,
+              Err(err) => {
+                println!("error parsing account data: {err}");
+                continue;
+              },
+            };
+            println!("ACCOUNT DATA");
+            println!("  Owner: {}", account.authority);
+            println!("  Group: {}", account.group);
+            println!("  Assets:");
+
+            for balance in account.lending_account.get_active_balances_iter() {
+              println!("    Bank: {}", balance.bank_pk);
+            }
             println!();
+
           }
         }
       }
@@ -99,4 +134,18 @@ fn parse_anchor_event<T: anchor_lang::AnchorDeserialize>(data: &str) -> anyhow::
   let decoded = general_purpose::STANDARD.decode(data)?;
   let event_data = &decoded[8..];
   Ok(T::deserialize(&mut &event_data[..])?)
+}
+
+async fn parse_account<T: Pod>(
+  rpc_client: &RpcClient,
+  account_pubkey: &Pubkey,
+) -> Result<T, Box<dyn std::error::Error>> {
+  let account_data = rpc_client.get_account_data(account_pubkey).await?;
+  
+  let data_without_discriminator = &account_data[8..];
+  
+  let marginfi_account = bytemuck::try_from_bytes::<T>(data_without_discriminator)
+      .map_err(|e| format!("failed to deserialize: {:?}", e))?;
+  
+  Ok(*marginfi_account)
 }

@@ -134,6 +134,23 @@ impl HealthCache {
     }
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct AccountEventHeader {
+    pub signer: Option<Pubkey>,
+    pub marginfi_account: Pubkey,
+    pub marginfi_account_authority: Pubkey,
+    pub marginfi_group: Pubkey,
+}
+
+#[event]
+pub struct LendingAccountWithdrawEvent {
+    pub header: AccountEventHeader,
+    pub bank: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub close_balance: bool,
+}
+
 #[event]
 pub struct HealthPulseEvent {
   pub account: Pubkey,
