@@ -9,6 +9,7 @@ use std::rc::Rc;
 use bytemuck::Pod;
 use consts::*;
 use events::*;
+use fixed::types::I80F48;
 use wrapped_i80f48::*;
 use anyhow::Context;
 
@@ -65,44 +66,73 @@ impl Marginfi {
         if let Some(event_data) = log.strip_prefix("Program data: ") {
           if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
             println!("WITHDRAW!");
-            println!("  Account: {}", event.header.marginfi_account);
             println!("  Transaction: {}", signature);
             
-            let sdk_pubkey = Pubkey::new_from_array(event.header.marginfi_account.to_bytes());
-            let account: MarginfiAccount = match parse_account(&self.rpc_client, &sdk_pubkey).await {
-              Ok(account) => account,
-              Err(err) => {
-                println!("error parsing account data: {err}");
-                continue;
-              },
-            };
-            println!("ACCOUNT DATA");
-            println!("  Owner: {}", account.authority);
-            println!("  Lended assets:");
-
-            for balance in account.lending_account.get_active_balances_iter() {
-              let result = async {
-                let sdk_pubkey = Pubkey::new_from_array(balance.bank_pk.to_bytes());
-                let bank_account = parse_account::<Bank>(&self.rpc_client, &sdk_pubkey).await
-                  .map_err(|e| anyhow::anyhow!("invalid bank account data: {}", e))?;
-                let amount = bank_account.get_asset_amount(balance.asset_shares.into())
-                  .context("asset amount calculation failed")?;
-                let display_amount = bank_account.get_display_asset(amount)
-                  .context("asset calculation failed")?;
-                println!("    Mint: {}", bank_account.mint);
-                println!("    Amount: {:?}", display_amount);
-                println!("    Bank: {}", balance.bank_pk);
-
-                anyhow::Ok(())
-              }.await;
-
-              result?
-            }
+            self.handle_account(&event.header.marginfi_account).await?;
             println!();
-
           }
         }
       }
+    }
+
+    anyhow::Ok(())
+  }
+
+  async fn handle_account(&self, account_pubkey: &anchor_lang::prelude::Pubkey) -> anyhow::Result<()> {
+    let sdk_pubkey = Pubkey::new_from_array(account_pubkey.to_bytes());
+    let account = parse_account::<MarginfiAccount>(&self.rpc_client, &sdk_pubkey).await
+      .map_err(|e| anyhow::anyhow!("invalid account data: {}", e))?;
+    println!("ACCOUNT DATA");
+    println!("  Owner: {}", account.authority);
+    println!("  Lended assets:");
+
+    for balance in account.lending_account.get_active_balances_iter() {
+      let result = async {
+        let asset_shares: I80F48 = balance.asset_shares.into();
+        if asset_shares.is_zero() {
+          return anyhow::Ok(());
+        }
+
+        let sdk_pubkey = Pubkey::new_from_array(balance.bank_pk.to_bytes());
+        let bank_account = parse_account::<Bank>(&self.rpc_client, &sdk_pubkey).await
+          .map_err(|e| anyhow::anyhow!("invalid bank account data: {}", e))?;
+        let amount = bank_account.get_asset_amount(asset_shares)
+          .context("asset amount calculation failed")?;
+        let display_amount = bank_account.get_display_asset(amount)
+          .context("asset calculation failed")?;
+        println!("    Mint: {}", bank_account.mint);
+        println!("    Amount: {:?}", display_amount);
+        println!("    ---------------------------");
+
+        anyhow::Ok(())
+      }.await;
+
+      result?
+    }
+
+    println!("  Borrowed assets:");
+    for balance in account.lending_account.get_active_balances_iter() {
+      let result = async {
+        let liability_shares: I80F48 = balance.liability_shares.into();
+        if liability_shares.is_zero() {
+          return anyhow::Ok(());
+        }
+
+        let sdk_pubkey = Pubkey::new_from_array(balance.bank_pk.to_bytes());
+        let bank_account = parse_account::<Bank>(&self.rpc_client, &sdk_pubkey).await
+          .map_err(|e| anyhow::anyhow!("invalid bank account data: {}", e))?;
+        let amount = bank_account.get_liability_amount(liability_shares)
+          .context("asset amount calculation failed")?;
+        let display_amount = bank_account.get_display_asset(amount)
+          .context("asset calculation failed")?;
+        println!("    Mint: {}", bank_account.mint);
+        println!("    Amount: {:?}", display_amount);
+        println!("    ---------------------------");
+
+        anyhow::Ok(())
+      }.await;
+
+      result?
     }
 
     anyhow::Ok(())
