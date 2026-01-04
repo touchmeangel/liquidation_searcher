@@ -84,7 +84,7 @@ impl Marginfi {
       .map_err(|e| anyhow::anyhow!("invalid account data: {}", e))?;
     println!("ACCOUNT DATA");
     println!("  Owner: {}", account.authority);
-    println!("  Lended assets:");
+    println!("  Lended assets ({:?}$):", account.health_cache.asset_value);
 
     for balance in account.lending_account.get_active_balances_iter() {
       let result = async {
@@ -110,7 +110,7 @@ impl Marginfi {
       result?
     }
 
-    println!("  Borrowed assets:");
+    println!("  Borrowed assets ({:?}$):", account.health_cache.liability_value);
     for balance in account.lending_account.get_active_balances_iter() {
       let result = async {
         let liability_shares: I80F48 = balance.liability_shares.into();
