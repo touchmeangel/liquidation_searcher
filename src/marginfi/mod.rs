@@ -79,9 +79,10 @@ impl Marginfi {
             println!("ACCOUNT DATA");
             println!("  Owner: {}", account.authority);
             println!("  Group: {}", account.group);
-            println!("  Assets:");
+            println!("  Lended assets:");
 
             for balance in account.lending_account.get_active_balances_iter() {
+              println!("    Amount: {:?}", balance.asset_shares);
               println!("    Bank: {}", balance.bank_pk);
             }
             println!();
@@ -93,6 +94,16 @@ impl Marginfi {
 
     anyhow::Ok(())
   }
+
+    // /// Sum of all liability shares held by all borrowers in this bank.
+    // /// * Uses `mint_decimals`
+    // pub total_liability_shares: WrappedI80F48,
+    // /// Sum of all asset shares held by all depositors in this bank.
+    // /// * Uses `mint_decimals`
+    // /// * For Kamino banks, this is the quantity of collateral tokens (NOT liquidity tokens) in the
+    // ///   bank, and also uses `mint_decimals`, though the mint itself will always show (6) decimals
+    // ///   exactly (i.e Kamino ignores this and treats it as if it was using `mint_decimals`)
+    // pub total_asset_shares: WrappedI80F48,
 
   // lending_account_liquidate // legacy
   // start_liquidation, end_liquidation // receivership
