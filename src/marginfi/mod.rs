@@ -1,24 +1,30 @@
+mod instructions;
 mod types;
 mod consts;
 mod events;
 mod macros;
 mod wrapped_i80f48;
 
+use anchor_lang::prelude::Pubkey;
+use instructions::*;
+use consts::*;
+use events::*;
+use solana_account_decoder::UiAccountEncoding;
+use solana_transaction_status_client_types::UiTransactionEncoding;
+use wrapped_i80f48::*;
+
 use std::rc::Rc;
 
 use bytemuck::Pod;
-use consts::*;
-use events::*;
 use fixed::types::I80F48;
-use wrapped_i80f48::*;
 use anyhow::Context;
 
-use solana_client::nonblocking::pubsub_client::PubsubClient;
-use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_client::rpc_config::{CommitmentConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
+use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
+use solana_rpc_client_types::config::{RpcSimulateTransactionAccountsConfig, RpcSimulateTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
 use anchor_client::solana_sdk::signature::Keypair;
-use solana_sdk::pubkey::Pubkey;
 use tokio_stream::StreamExt;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
@@ -33,13 +39,12 @@ pub struct Marginfi {
 
 impl Marginfi {
   pub async fn new(http_url: String, ws_url: String) -> anyhow::Result<Self> {
-    let pubsub = PubsubClient::new(ws_url).await?;
+    let pubsub = PubsubClient::new(&ws_url).await?;
     let payer = Keypair::new();
-    let rpc_client = RpcClient::new(http_url);
-    let client = Client::new(Cluster::Mainnet, Rc::new(payer));
+    let client = Client::new(Cluster::Custom(http_url, ws_url), Rc::new(payer));
     let program = client.program(MARGINFI_PROGRAM_ID)?;
-    
-    anyhow::Ok(Self { pubsub, rpc_client, client, program })
+
+    anyhow::Ok(Self { pubsub, rpc_client: program.rpc(), client, program })
   }
 
   pub async fn listen_for_targets(&self) -> anyhow::Result<()> {
@@ -52,7 +57,7 @@ impl Marginfi {
         )
         .await?;
 
-    println!("✅ Connected! Listening for liquidation events...\n");
+        println!("✅ Connected! Listening for liquidation events...\n");
 
     while let Some(response) = logs.next().await {
       let signature = &response.value.signature;
@@ -79,12 +84,14 @@ impl Marginfi {
   }
 
   async fn handle_account(&self, account_pubkey: &anchor_lang::prelude::Pubkey) -> anyhow::Result<()> {
-    let sdk_pubkey = Pubkey::new_from_array(account_pubkey.to_bytes());
-    let account = parse_account::<MarginfiAccount>(&self.rpc_client, &sdk_pubkey).await
+    // health_cache.prices !!!
+    let health_cache = self.fetch_health_cache(*account_pubkey).await?;
+
+    let account = parse_account::<MarginfiAccount>(&self.rpc_client, account_pubkey).await
       .map_err(|e| anyhow::anyhow!("invalid account data: {}", e))?;
     println!("ACCOUNT DATA");
     println!("  Owner: {}", account.authority);
-    println!("  Lended assets ({:?}$):", account.health_cache.asset_value);
+    println!("  Lended assets ({:?}$):", health_cache.asset_value);
 
     for balance in account.lending_account.get_active_balances_iter() {
       let result = async {
@@ -93,8 +100,7 @@ impl Marginfi {
           return anyhow::Ok(());
         }
 
-        let sdk_pubkey = Pubkey::new_from_array(balance.bank_pk.to_bytes());
-        let bank_account = parse_account::<Bank>(&self.rpc_client, &sdk_pubkey).await
+        let bank_account = parse_account::<Bank>(&self.rpc_client, account_pubkey).await
           .map_err(|e| anyhow::anyhow!("invalid bank account data: {}", e))?;
         let amount = bank_account.get_asset_amount(asset_shares)
           .context("asset amount calculation failed")?;
@@ -110,7 +116,7 @@ impl Marginfi {
       result?
     }
 
-    println!("  Borrowed assets ({:?}$):", account.health_cache.liability_value);
+    println!("  Borrowed assets ({:?}$):", health_cache.liability_value);
     for balance in account.lending_account.get_active_balances_iter() {
       let result = async {
         let liability_shares: I80F48 = balance.liability_shares.into();
@@ -136,6 +142,43 @@ impl Marginfi {
     }
 
     anyhow::Ok(())
+  }
+
+  async fn fetch_health_cache(&self, account_pubkey: Pubkey) -> anyhow::Result<HealthCache> {
+    let tx = self.program.request()
+      .accounts(PulseHealthAccounts { marginfi_account: account_pubkey })
+      .args(PulseHealth)
+      .transaction()?;
+
+    let config = RpcSimulateTransactionConfig {
+      sig_verify: false,
+      replace_recent_blockhash: true,
+      commitment: Some(CommitmentConfig::processed()),
+      encoding: Some(UiTransactionEncoding::Base64),
+      accounts: Some(RpcSimulateTransactionAccountsConfig {
+        encoding: Some(UiAccountEncoding::Base64),
+        addresses: vec![],
+      }),
+      min_context_slot: None,
+      inner_instructions: true,
+    };
+    let simulation_result = self.rpc_client.simulate_transaction_with_config(&tx, config).await?;
+    if let Some(err) = simulation_result.value.err {
+      anyhow::bail!("health cache simulation failed with: {}", err)
+    }
+
+    if let Some(logs) = simulation_result.value.logs {
+      for log in logs {
+        if let Some(event_data) = log.strip_prefix("Program data: ") {
+          println!("Program data: {}", event_data);
+          if let Ok(event) = parse_anchor_event::<HealthPulseEvent>(event_data) {
+            return anyhow::Ok(event.health_cache);
+          }
+        }
+      }
+    }
+
+    anyhow::bail!("HealthPulseEvent not found after simulation")
   }
 
     // /// Sum of all liability shares held by all borrowers in this bank.

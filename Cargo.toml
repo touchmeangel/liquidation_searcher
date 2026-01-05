@@ -9,8 +9,6 @@ serde_json = "1.0.132"
 serde = { version = "1.0.215", features = ["derive"] }
 tokio = { version = "1.44.2", features = ["full"] }
 anyhow = "1.0.100"
-solana-client = "3.1.5"
-solana-sdk = "3.0.0"
 anchor-client = { version = "0.32.1", features = ["async"] }
 anchor-lang = "0.32.1"
 tokio-stream = "0.1.17"
@@ -19,3 +17,8 @@ bytemuck = "1.22.0"
 static_assertions = "1.1.0"
 fixed = "=1.28.0"
 fixed-macro = "1.2.0"
+solana-rpc-client = "^2"
+solana-pubsub-client = "^2"
+solana-rpc-client-types = "^2"
+solana-transaction-status-client-types = "^2"
+solana-account-decoder = "^2"
