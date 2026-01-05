@@ -40,8 +40,8 @@ pub struct Marginfi {
 impl Marginfi {
   pub async fn new(http_url: String, ws_url: String) -> anyhow::Result<Self> {
     let pubsub = PubsubClient::new(&ws_url).await?;
-    let payer = Keypair::new();
-    let client = Client::new(Cluster::Custom(http_url, ws_url), Rc::new(payer));
+    let payer = Rc::new(Keypair::new());
+    let client = Client::new(Cluster::Custom(http_url, ws_url), payer);
     let program = client.program(MARGINFI_PROGRAM_ID)?;
 
     anyhow::Ok(Self { pubsub, rpc_client: program.rpc(), client, program })
@@ -164,7 +164,7 @@ impl Marginfi {
     };
     let simulation_result = self.rpc_client.simulate_transaction_with_config(&tx, config).await?;
     if let Some(err) = simulation_result.value.err {
-      anyhow::bail!("health cache simulation failed with: {}", err)
+      anyhow::bail!("HealthPulseEvent simulation failed with: {}", err)
     }
 
     if let Some(logs) = simulation_result.value.logs {
