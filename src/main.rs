@@ -1,6 +1,7 @@
 mod config;
 mod consts;
 mod marginfi;
+mod utils;
 
 use config::Config;
 

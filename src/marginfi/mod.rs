@@ -7,22 +7,21 @@ mod macros;
 mod prelude;
 mod wrapped_i80f48;
 
-use anchor_lang::prelude::Pubkey;
+use bytemuck::Pod;
 use instructions::*;
 use consts::*;
 pub use errors::*;
 use events::*;
 use solana_account_decoder::UiAccountEncoding;
 use solana_transaction_status_client_types::UiTransactionEncoding;
-pub use prelude::*;
 use wrapped_i80f48::*;
 
 use std::rc::Rc;
 
-use bytemuck::Pod;
 use fixed::types::I80F48;
 use anyhow::Context;
 
+use anchor_lang::prelude::Pubkey;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
 use solana_rpc_client_types::config::{RpcSimulateTransactionAccountsConfig, RpcSimulateTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
@@ -33,6 +32,7 @@ use tokio_stream::StreamExt;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 use crate::marginfi::types::{Bank, MarginfiAccount};
+use crate::utils::parse_account;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
@@ -91,7 +91,7 @@ impl Marginfi {
     // health_cache.prices !!!
     let health_cache = self.fetch_health_cache(*account_pubkey).await?;
 
-    let account = parse_account::<MarginfiAccount>(&self.rpc_client, account_pubkey).await
+    let account = self.parse_account::<MarginfiAccount>(account_pubkey).await
       .map_err(|e| anyhow::anyhow!("invalid account data: {}", e))?;
     println!("ACCOUNT DATA");
     println!("  Owner: {}", account.authority);
@@ -104,7 +104,7 @@ impl Marginfi {
           return anyhow::Ok(());
         }
 
-        let bank_account = parse_account::<Bank>(&self.rpc_client, account_pubkey).await
+        let bank_account = self.parse_account::<Bank>(account_pubkey).await
           .map_err(|e| anyhow::anyhow!("invalid bank account data: {}", e))?;
         let amount = bank_account.get_asset_amount(asset_shares)
           .context("asset amount calculation failed")?;
@@ -129,7 +129,7 @@ impl Marginfi {
         }
 
         let sdk_pubkey = Pubkey::new_from_array(balance.bank_pk.to_bytes());
-        let bank_account = parse_account::<Bank>(&self.rpc_client, &sdk_pubkey).await
+        let bank_account = self.parse_account::<Bank>(&sdk_pubkey).await
           .map_err(|e| anyhow::anyhow!("invalid bank account data: {}", e))?;
         let amount = bank_account.get_liability_amount(liability_shares)
           .context("asset amount calculation failed")?;
@@ -185,6 +185,15 @@ impl Marginfi {
     anyhow::bail!("HealthPulseEvent not found after simulation")
   }
 
+  async fn parse_account<T: Pod>(
+    &self,
+    account_pubkey: &Pubkey,
+  ) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
+    let account_data = self.rpc_client.get_account_data(account_pubkey).await?;
+    
+    parse_account(&account_data, account_pubkey)
+  }
+
     // /// Sum of all liability shares held by all borrowers in this bank.
     // /// * Uses `mint_decimals`
     // pub total_liability_shares: WrappedI80F48,
@@ -235,18 +244,4 @@ fn parse_anchor_event<T: anchor_lang::AnchorDeserialize>(data: &str) -> anyhow::
   let decoded = general_purpose::STANDARD.decode(data)?;
   let event_data = &decoded[8..];
   Ok(T::deserialize(&mut &event_data[..])?)
-}
-
-async fn parse_account<T: Pod>(
-  rpc_client: &RpcClient,
-  account_pubkey: &Pubkey,
-) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
-  let account_data = rpc_client.get_account_data(account_pubkey).await?;
-  
-  let data_without_discriminator = &account_data[8..];
-  
-  let marginfi_account = bytemuck::try_from_bytes::<T>(data_without_discriminator)
-      .map_err(|e| format!("failed to deserialize: {:?}", e))?;
-  
-  Ok(*marginfi_account)
 }

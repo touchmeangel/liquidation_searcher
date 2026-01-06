@@ -1,14 +1,15 @@
 use crate::{
   assert_struct_align, assert_struct_size,
 };
-  
+
+use crate::consts::MARGINFI_PROGRAM_ID;
 use super::super::consts::{discriminators, ASSET_TAG_DEFAULT, EMPTY_BALANCE_THRESHOLD};
 use bytemuck::{Pod, Zeroable};
 use fixed::types::I80F48;
 
 use super::super::{HealthCache, WrappedI80F48};
 
-use anchor_lang::prelude::*;
+use anchor_lang::{ZeroCopy, prelude::*};
 
 assert_struct_size!(MarginfiAccount, 2304);
 assert_struct_align!(MarginfiAccount, 8);
@@ -71,7 +72,6 @@ pub struct MarginfiAccount {
 
 impl MarginfiAccount {
   pub const LEN: usize = std::mem::size_of::<MarginfiAccount>();
-  pub const DISCRIMINATOR: [u8; 8] = discriminators::ACCOUNT;
 
   /// Note: Only for accounts created by PDA
   pub fn derive_pda(
@@ -94,6 +94,11 @@ impl MarginfiAccount {
       )
   }
 }
+
+impl Discriminator for MarginfiAccount {
+  const DISCRIMINATOR: &[u8] = &discriminators::ACCOUNT;
+}
+impl ZeroCopy for MarginfiAccount {}
 
 pub const ACCOUNT_DISABLED: u64 = 1 << 0;
 pub const ACCOUNT_IN_FLASHLOAN: u64 = 1 << 1;
