@@ -4,6 +4,7 @@ use super::super::consts::{
 };
 use anchor_lang::prelude::*;
 use anchor_client::solana_sdk::{borsh::try_from_slice_unchecked, stake::state::StakeStateV2};
+use crate::utils::parse_account;
 use crate::{check, check_eq, debug, live, math_error};
 use super::super::prelude::*;
 use anchor_spl::token::Mint;
@@ -224,10 +225,8 @@ impl OraclePriceFeedAdapter {
               );
 
               // Verifies owner + discriminator automatically
-              let reserve_loader: AccountLoader<MinimalReserve> =
-                  AccountLoader::try_from(reserve_info)
-                      .map_err(|_| MarginfiError::KaminoReserveValidationFailed)?;
-              let reserve = reserve_loader.load()?;
+              let reserve = parse_account::<MinimalReserve>(*(reserve_info.try_borrow_data()?), reserve_info.key)
+                .map_err(|_| ErrorCode::AccountDidNotDeserialize)?;
               let is_stale = reserve.is_stale(clock.slot);
               if is_stale {
                   // msg!(
@@ -292,10 +291,8 @@ impl OraclePriceFeedAdapter {
               );
 
               // Verifies owner + discriminator automatically
-              let reserve_loader: AccountLoader<MinimalReserve> =
-                  AccountLoader::try_from(reserve_info)
-                      .map_err(|_| MarginfiError::KaminoReserveValidationFailed)?;
-              let reserve = reserve_loader.load()?;
+              let reserve = parse_account::<MinimalReserve>(*(reserve_info.try_borrow_data()?), reserve_info.key)
+                .map_err(|_| ErrorCode::AccountDidNotDeserialize)?;
               let is_stale = reserve.is_stale(clock.slot);
               if is_stale {
                   return err!(MarginfiError::ReserveStale);

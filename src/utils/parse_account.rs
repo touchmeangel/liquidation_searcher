@@ -6,7 +6,7 @@ pub fn parse_account<T: Pod>(
   account_pubkey: &Pubkey,
 ) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
   let marginfi_account = bytemuck::try_from_bytes::<T>(&data[8..])
-      .map_err(|e| format!("failed to deserialize: {:?}", e))?;
+      .map_err(|e| format!("account data parse failed: {:?}", e))?;
   
   Ok(*marginfi_account)
 }

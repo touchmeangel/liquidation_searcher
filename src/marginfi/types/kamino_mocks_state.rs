@@ -130,11 +130,6 @@ impl Discriminator for MinimalReserve {
 }
 
 impl ZeroCopy for MinimalReserve {}
-impl Owner for MinimalReserve {
-  fn owner() -> Pubkey {
-    MARGINFI_PROGRAM_ID
-  }
-}
 
 // Notable Kamino naming conventions:
 // * `mint_total_supply` aka `total_col` - total amount of collateral tokens that exist
