@@ -97,7 +97,7 @@ impl Marginfi {
     let duration = start.elapsed();
     println!("ACCOUNT DATA ({:?})", duration);
     println!("  Owner: {}", marginfi_account.authority);
-    println!("  Lended assets ({:?}$):", marginfi_account.health_cache.asset_value);
+    println!("  Lended assets ({:?}$):", account.lending_value()?);
 
     anyhow::Ok(())
   }

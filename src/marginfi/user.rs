@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
+use anyhow::Context;
+use fixed::types::I80F48;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use anchor_lang::prelude::{Clock, Pubkey};
 
-use crate::{marginfi::types::{Bank, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig}, utils::parse_account};
+use crate::{marginfi::types::{Bank, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter}, utils::parse_account};
 
 #[derive(Clone)]
 pub struct MarginfiUserAccount {
   account: MarginfiAccount,
-  banks: Vec<BankWithPriceFeed>,
+  banks: HashMap<Pubkey, BankWithPriceFeed>,
 }
 
 impl MarginfiUserAccount {
@@ -38,14 +42,46 @@ impl MarginfiUserAccount {
       .map(|cfg| OraclePriceFeedAdapter::try_from_config(cfg))
       .collect::<Result<Vec<_>, _>>()?;
 
+    let banks = banks
+      .into_iter()
+      .zip(bank_pubkeys)
+      .zip(price_feeds)
+      .map(|((bank, bank_pk), price_feed)| (bank_pk, BankWithPriceFeed { bank, price_feed }))
+      .collect();
+
     anyhow::Ok(Self {
       account,
-      banks: banks.into_iter().zip(price_feeds).map(|(bank, price_feed)| BankWithPriceFeed { bank, price_feed }).collect(),
+      banks,
     })
   } 
 
   pub fn account(&self) -> &MarginfiAccount {
     &self.account
+  }
+  
+  /// returns lending value in usd
+  pub fn lending_value(&self) -> anyhow::Result<I80F48> {
+    let total_asset_value: I80F48 = self.account.lending_account.get_active_balances_iter()
+      .try_fold(I80F48::ZERO, |acc, balance| {
+        let bank = self.banks.get(&balance.bank_pk)
+          .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
+    
+        let price = bank.price_feed.get_price_of_type(
+          OraclePriceType::RealTime,
+          Some(super::types::PriceBias::Low),
+          bank.bank.config.oracle_max_confidence
+        )?;
+    
+        let asset = bank.bank.get_asset_amount(balance.asset_shares.into())
+          .context("asset shares calculation failed")?;
+    
+        let asset_value = asset.checked_mul(price)
+          .context("asset value calculation failed")?;
+    
+        anyhow::Ok(acc + asset_value)
+      })?;
+
+    anyhow::Ok(total_asset_value)
   }
 }
 
