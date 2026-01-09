@@ -110,6 +110,16 @@ impl Marginfi {
       }
     }
     println!("  Borrowed assets ({:?}$):", account.liability_value()?);
+    for balance in marginfi_account.lending_account.get_active_balances_iter() {
+      if let Some(bank) = account.get_bank(&balance.bank_pk) {
+        let liability_shares: I80F48 = balance.liability_shares.into();
+        if liability_shares.is_zero() {
+          continue;
+        }
+        println!("     Mint: {}", bank.mint);
+        println!("     Balance: {}", bank.get_display_asset(bank.get_asset_amount(liability_shares).unwrap()).unwrap());
+      }
+    }
 
     anyhow::Ok(())
   }
