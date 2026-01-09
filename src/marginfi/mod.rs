@@ -97,7 +97,8 @@ impl Marginfi {
     let duration = start.elapsed();
     println!("ACCOUNT DATA ({:?})", duration);
     println!("  Owner: {}", marginfi_account.authority);
-    println!("  Lended assets ({:?}$):", account.lending_value()?);
+    println!("  Lended assets ({:?}$):", account.asset_value()?);
+    println!("  Borrowed assets ({:?}$):", account.liability_value()?);
 
     anyhow::Ok(())
   }
@@ -138,16 +139,6 @@ impl Marginfi {
 
     anyhow::bail!("HealthPulseEvent not found after simulation")
   }
-
-    // /// Sum of all liability shares held by all borrowers in this bank.
-    // /// * Uses `mint_decimals`
-    // pub total_liability_shares: WrappedI80F48,
-    // /// Sum of all asset shares held by all depositors in this bank.
-    // /// * Uses `mint_decimals`
-    // /// * For Kamino banks, this is the quantity of collateral tokens (NOT liquidity tokens) in the
-    // ///   bank, and also uses `mint_decimals`, though the mint itself will always show (6) decimals
-    // ///   exactly (i.e Kamino ignores this and treats it as if it was using `mint_decimals`)
-    // pub total_asset_shares: WrappedI80F48,
 
   // lending_account_liquidate // legacy
   // start_liquidation, end_liquidation // receivership

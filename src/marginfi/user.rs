@@ -59,8 +59,8 @@ impl MarginfiUserAccount {
     &self.account
   }
   
-  /// returns lending value in usd
-  pub fn lending_value(&self) -> anyhow::Result<I80F48> {
+  /// returns lended value in usd
+  pub fn asset_value(&self) -> anyhow::Result<I80F48> {
     let total_asset_value: I80F48 = self.account.lending_account.get_active_balances_iter()
       .try_fold(I80F48::ZERO, |acc, balance| {
         let bank = self.banks.get(&balance.bank_pk)
@@ -82,6 +82,31 @@ impl MarginfiUserAccount {
       })?;
 
     anyhow::Ok(total_asset_value)
+  }
+
+  /// returns borrowed value in usd
+  pub fn liability_value(&self) -> anyhow::Result<I80F48> {
+    let total_liability_value: I80F48 = self.account.lending_account.get_active_balances_iter()
+      .try_fold(I80F48::ZERO, |acc, balance| {
+        let bank = self.banks.get(&balance.bank_pk)
+          .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
+    
+        let price = bank.price_feed.get_price_of_type(
+          OraclePriceType::RealTime,
+          Some(super::types::PriceBias::Low),
+          bank.bank.config.oracle_max_confidence
+        )?;
+    
+        let liability = bank.bank.get_asset_amount(balance.liability_shares.into())
+          .context("liability shares calculation failed")?;
+    
+        let liability_value = liability.checked_mul(price)
+          .context("liability value calculation failed")?;
+    
+        anyhow::Ok(acc + liability_value)
+      })?;
+
+    anyhow::Ok(total_liability_value)
   }
 }
 
