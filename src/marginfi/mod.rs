@@ -9,6 +9,7 @@ mod prelude;
 mod wrapped_i80f48;
 
 use anchor_lang::prelude::sysvar::clock;
+use fixed::types::I80F48;
 use instructions::*;
 use consts::*;
 pub use errors::*;
@@ -98,6 +99,16 @@ impl Marginfi {
     println!("ACCOUNT DATA ({:?})", duration);
     println!("  Owner: {}", marginfi_account.authority);
     println!("  Lended assets ({:?}$):", account.asset_value()?);
+    for balance in marginfi_account.lending_account.get_active_balances_iter() {
+      if let Some(bank) = account.get_bank(&balance.bank_pk) {
+        let asset_shares: I80F48 = balance.asset_shares.into();
+        if asset_shares.is_zero() {
+          continue;
+        }
+        println!("     Mint: {}", bank.mint);
+        println!("     Balance: {}", bank.get_display_asset(bank.get_asset_amount(asset_shares).unwrap()).unwrap());
+      }
+    }
     println!("  Borrowed assets ({:?}$):", account.liability_value()?);
 
     anyhow::Ok(())
