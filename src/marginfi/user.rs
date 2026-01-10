@@ -5,7 +5,7 @@ use fixed::types::I80F48;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use anchor_lang::prelude::{Pubkey};
 
-use crate::{marginfi::types::{Bank, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter}, utils::parse_account};
+use crate::{marginfi::types::{Balance, Bank, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter}, utils::parse_account};
 
 #[derive(Clone)]
 pub struct MarginfiUserAccount {
@@ -63,23 +63,7 @@ impl MarginfiUserAccount {
   pub fn asset_value(&self) -> anyhow::Result<I80F48> {
     let total_asset_value: I80F48 = self.account.lending_account.get_active_balances_iter()
       .try_fold(I80F48::ZERO, |acc, balance| {
-        let bank = self.banks.get(&balance.bank_pk)
-          .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
-    
-        let price = bank.price_feed.get_price_of_type(
-          OraclePriceType::RealTime,
-          Some(super::types::PriceBias::Low),
-          bank.bank.config.oracle_max_confidence
-        )?;
-    
-        let asset = bank.bank.get_asset_amount(balance.asset_shares.into())
-          .context("asset shares calculation failed")?;
-    
-        let asset_value_with_decimals = asset.checked_mul(price)
-          .context("asset with decimals value calculation failed")?;
-
-        let asset_value = bank.bank.get_display_asset(asset_value_with_decimals)
-          .context("asset value calculation failed")?;
+        let asset_value = self.bank_asset_value(balance)?;
     
         anyhow::Ok(acc + asset_value)
       })?;
@@ -91,28 +75,77 @@ impl MarginfiUserAccount {
   pub fn liability_value(&self) -> anyhow::Result<I80F48> {
     let total_liability_value: I80F48 = self.account.lending_account.get_active_balances_iter()
       .try_fold(I80F48::ZERO, |acc, balance| {
-        let bank = self.banks.get(&balance.bank_pk)
-          .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
-    
-        let price = bank.price_feed.get_price_of_type(
-          OraclePriceType::RealTime,
-          Some(super::types::PriceBias::Low),
-          bank.bank.config.oracle_max_confidence
-        )?;
-    
-        let liability = bank.bank.get_asset_amount(balance.liability_shares.into())
-          .context("liability shares calculation failed")?;
-    
-        let liability_value_with_decimals = liability.checked_mul(price)
-          .context("liability with decimals value calculation failed")?;
-
-        let liability_value = bank.bank.get_display_asset(liability_value_with_decimals)
-          .context("liability value calculation failed")?;
+        let liability_value = self.bank_liability_value(balance)?;
 
         anyhow::Ok(acc + liability_value)
       })?;
 
     anyhow::Ok(total_liability_value)
+  }
+
+  fn bank_asset_value(&self, balance: &Balance) -> anyhow::Result<I80F48> {
+    let bank = self.banks.get(&balance.bank_pk)
+      .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
+
+    let price = bank.price_feed.get_price_of_type(
+      OraclePriceType::RealTime,
+      Some(super::types::PriceBias::Low),
+      bank.bank.config.oracle_max_confidence
+    )?;
+
+    let asset = bank.bank.get_asset_amount(balance.asset_shares.into())
+      .context("asset shares calculation failed")?;
+
+    let asset_value_with_decimals = asset.checked_mul(price)
+      .context("asset with decimals value calculation failed")?;
+
+    let asset_value = bank.bank.get_display_asset(asset_value_with_decimals)
+      .context("asset value calculation failed")?;
+
+    anyhow::Ok(asset_value)
+  }
+
+  fn bank_liability_value(&self, balance: &Balance) -> anyhow::Result<I80F48> {
+    let bank = self.banks.get(&balance.bank_pk)
+      .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
+
+    let price = bank.price_feed.get_price_of_type(
+      OraclePriceType::RealTime,
+      Some(super::types::PriceBias::Low),
+      bank.bank.config.oracle_max_confidence
+    )?;
+
+    let liability = bank.bank.get_asset_amount(balance.liability_shares.into())
+      .context("liability shares calculation failed")?;
+
+    let liability_value_with_decimals = liability.checked_mul(price)
+      .context("liability with decimals value calculation failed")?;
+
+    let liability_value = bank.bank.get_display_asset(liability_value_with_decimals)
+      .context("liability value calculation failed")?;
+
+    anyhow::Ok(liability_value)
+  }
+
+  pub fn maintenance(&self) -> anyhow::Result<I80F48> {
+    let mut total_asset_value: I80F48 = I80F48::ZERO;
+    let mut total_liability_value: I80F48 = I80F48::ZERO;
+    for balance in self.account.lending_account.get_active_balances_iter() {
+      let bank = self.banks.get(&balance.bank_pk)
+        .ok_or_else(|| anyhow::anyhow!("Bank not found"))?;
+      let asset_value = self.bank_asset_value(balance)?;
+      let liability_value = self.bank_asset_value(balance)?;
+
+      let asset_weight: I80F48 = bank.bank.config.asset_weight_maint.into();
+      let liability_weight: I80F48 = bank.bank.config.liability_weight_maint.into();
+
+      total_asset_value += asset_value.checked_mul(asset_weight)
+        .context("asset maintenance value calculation failed")?;
+      total_liability_value += liability_value.checked_mul(liability_weight)
+        .context("asset maintenance value calculation failed")?;
+    }
+
+    anyhow::Ok(total_asset_value)
   }
 
   pub fn get_bank(&self, pubkey: &Pubkey) -> Option<&Bank> {
