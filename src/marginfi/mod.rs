@@ -90,7 +90,8 @@ impl Marginfi {
     let duration = start.elapsed();
     println!("ACCOUNT DATA ({:?})", duration);
     println!("  Owner: {}", marginfi_account.authority);
-    println!("  Lended assets ({}$):", account.asset_value()?);
+    let asset_value = account.asset_value()?;
+    println!("  Lended assets ({}$):", asset_value);
     for balance in marginfi_account.lending_account.get_active_balances_iter() {
       if let Some(bank) = account.get_bank(&balance.bank_pk) {
         let asset_shares: I80F48 = balance.asset_shares.into();
@@ -112,7 +113,8 @@ impl Marginfi {
         println!("     Balance: {}", bank.get_display_asset(bank.get_asset_amount(liability_shares).unwrap()).unwrap());
       }
     }
-    println!("  Maintenance: {}$", account.maintenance()?);
+    let maint = account.maintenance()?;
+    println!("  Maintenance: {}$ ({}%)", maint, maint.checked_div(asset_value).unwrap().checked_mul_int(100).unwrap());
 
     anyhow::Ok(())
   }

@@ -136,13 +136,16 @@ impl MarginfiUserAccount {
       let asset_value = self.bank_asset_value(balance)?;
       let liability_value = self.bank_liability_value(balance)?;
 
+      // If an emode entry exists for this bank's emode tag in the reconciled config of
+      // all borrowing banks, use its weight, otherwise use the weight designated on the
+      // collateral bank itself. If the bank's weight is higher, always use that weight.
       let asset_weight: I80F48 = bank.bank.config.asset_weight_maint.into();
       let liability_weight: I80F48 = bank.bank.config.liability_weight_maint.into();
 
       total_asset_value += asset_value.checked_mul(asset_weight)
         .context("asset maintenance value calculation failed")?;
       total_liability_value += liability_value.checked_mul(liability_weight)
-        .context("asset maintenance value calculation failed")?;
+        .context("liability maintenance value calculation failed")?;
     }
 
     anyhow::Ok(total_asset_value - total_liability_value)
