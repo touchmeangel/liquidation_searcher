@@ -87,31 +87,28 @@ impl Marginfi {
     let start = Instant::now();
     let account = MarginfiUserAccount::from_pubkey(&self.rpc_client, account_pubkey).await?;
     let marginfi_account = account.account();
+    let bank_accounts = account.bank_accounts();
     let duration = start.elapsed();
     println!("ACCOUNT DATA ({:?})", duration);
     println!("  Owner: {}", marginfi_account.authority);
     let asset_value = account.asset_value()?;
     println!("  Lended assets ({}$):", asset_value);
-    for balance in marginfi_account.lending_account.get_active_balances_iter() {
-      if let Some(bank) = account.get_bank(&balance.bank_pk) {
-        let asset_shares: I80F48 = balance.asset_shares.into();
-        if asset_shares.is_zero() {
-          continue;
-        }
-        println!("     Mint: {}", bank.mint);
-        println!("     Balance: {}", bank.get_display_asset(bank.get_asset_amount(asset_shares).unwrap()).unwrap());
+    for bank_account in bank_accounts {
+      let asset_shares: I80F48 = bank_account.balance.asset_shares.into();
+      if asset_shares.is_zero() {
+        continue;
       }
+      println!("     Mint: {}", bank_account.bank.mint);
+      println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(asset_shares).unwrap()).unwrap());
     }
     println!("  Borrowed assets ({}$):", account.liability_value()?);
-    for balance in marginfi_account.lending_account.get_active_balances_iter() {
-      if let Some(bank) = account.get_bank(&balance.bank_pk) {
-        let liability_shares: I80F48 = balance.liability_shares.into();
-        if liability_shares.is_zero() {
-          continue;
-        }
-        println!("     Mint: {}", bank.mint);
-        println!("     Balance: {}", bank.get_display_asset(bank.get_asset_amount(liability_shares).unwrap()).unwrap());
+    for bank_account in bank_accounts {
+      let liability_shares: I80F48 = bank_account.balance.liability_shares.into();
+      if liability_shares.is_zero() {
+        continue;
       }
+      println!("     Mint: {}", bank_account.bank.mint);
+      println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(liability_shares).unwrap()).unwrap());
     }
     let maint = account.maintenance()?;
     println!("  Maintenance: {}$ ({}%)", maint, maint.checked_div(asset_value).unwrap().checked_mul_int(100).unwrap());

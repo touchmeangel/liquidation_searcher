@@ -67,7 +67,11 @@ impl MarginfiUserAccount {
   pub fn account(&self) -> &MarginfiAccount {
     &self.account
   }
-  
+
+  pub fn bank_accounts(&self) -> &[BankAccount] {
+    &self.bank_accounts
+  }
+
   /// returns lended value in usd
   pub fn asset_value(&self) -> anyhow::Result<I80F48> {
     let total_asset_value: I80F48 = self.bank_accounts.iter()
