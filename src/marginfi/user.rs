@@ -3,12 +3,13 @@ use fixed::types::I80F48;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use anchor_lang::prelude::{Pubkey};
 
-use crate::{marginfi::types::{Balance, BalanceSide, Bank, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}, utils::parse_account};
+use crate::{marginfi::types::{Balance, BalanceSide, Bank, EmodeConfig, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}, utils::parse_account};
 
 #[derive(Clone)]
 pub struct MarginfiUserAccount {
   account: MarginfiAccount,
   bank_accounts: Vec<BankAccount>,
+  emode_config: EmodeConfig
 }
 
 impl MarginfiUserAccount {
@@ -59,6 +60,7 @@ impl MarginfiUserAccount {
     anyhow::Ok(Self {
       account,
       bank_accounts: banks,
+      emode_config: reconciled_emode_config
     })
   } 
 
@@ -100,9 +102,15 @@ impl MarginfiUserAccount {
       // If an emode entry exists for this bank's emode tag in the reconciled config of
       // all borrowing banks, use its weight, otherwise use the weight designated on the
       // collateral bank itself. If the bank's weight is higher, always use that weight.
-      let asset_weight: I80F48 = bank_account.bank.config.asset_weight_maint.into();
+      let bank_asset_weight: I80F48 = bank_account.bank.config.asset_weight_maint.into();
+      let asset_weight: I80F48 = if let Some(emode_entry) = self.emode_config.find_with_tag(bank_account.bank.emode.emode_tag) {
+        let emode_weight = I80F48::from(emode_entry.asset_weight_maint);
+        std::cmp::max(bank_asset_weight, emode_weight)
+      } else {
+        bank_asset_weight
+      };
       let liability_weight: I80F48 = bank_account.bank.config.liability_weight_maint.into();
-      // bank.bank.emode.emode_config.find_with_tag(tag)
+      println!("aw: {}, lw: {}", asset_weight, liability_weight);
 
       total_asset_value += asset_value.checked_mul(asset_weight)
         .context("asset maintenance value calculation failed")?;
