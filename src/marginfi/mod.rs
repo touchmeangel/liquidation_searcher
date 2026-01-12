@@ -69,6 +69,13 @@ impl Marginfi {
 
       for log in &response.value.logs {
         if let Some(event_data) = log.strip_prefix("Program data: ") {
+          if let Ok(event) = parse_anchor_event::<LendingAccountDepositEvent>(event_data) {
+            println!("DEPOSIT!");
+            println!("  Transaction: {}", signature);
+            
+            self.handle_account(&event.header.marginfi_account).await?;
+            println!();
+          }
           if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
             println!("WITHDRAW!");
             println!("  Transaction: {}", signature);
@@ -111,7 +118,7 @@ impl Marginfi {
       println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(liability_shares).unwrap()).unwrap());
     }
     let maint = account.maintenance()?;
-    println!("  Maintenance: {}$ ({}%)", maint, maint.checked_div(asset_value).unwrap().checked_mul_int(100).unwrap());
+    println!("  Maintenance: {}$ ({}%)", maint, maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1)).checked_mul_int(100).unwrap());
 
     anyhow::Ok(())
   }

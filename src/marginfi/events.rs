@@ -143,6 +143,14 @@ pub struct AccountEventHeader {
 }
 
 #[event]
+pub struct LendingAccountDepositEvent {
+    pub header: AccountEventHeader,
+    pub bank: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
 pub struct LendingAccountWithdrawEvent {
     pub header: AccountEventHeader,
     pub bank: Pubkey,
