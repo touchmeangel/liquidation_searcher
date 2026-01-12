@@ -430,7 +430,7 @@ impl SwitchboardPullPriceFeed {
           .saturating_sub(last_updated);
         let is_stale = age > max_age as i64;
         if is_stale {
-          msg!("SwitchboardPull price is stale for {} secs!", age - max_age as i64)
+          return err!(MarginfiError::SwitchboardStalePrice);
         }
 
         Ok(Self {
