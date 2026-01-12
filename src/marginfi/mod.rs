@@ -87,6 +87,15 @@ impl Marginfi {
             }
             println!();
           }
+          if let Ok(event) = parse_anchor_event::<LendingAccountRepayEvent>(event_data) {
+            println!("REPAY!");
+            println!("  Transaction: {}", signature);
+            
+            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
+              println!("Error, skipping: {}", error)
+            }
+            println!();
+          }
           if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
             println!("WITHDRAW!");
             println!("  Transaction: {}", signature);
