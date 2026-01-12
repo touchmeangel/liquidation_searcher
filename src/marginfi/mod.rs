@@ -73,21 +73,27 @@ impl Marginfi {
             println!("DEPOSIT!");
             println!("  Transaction: {}", signature);
             
-            self.handle_account(&event.header.marginfi_account).await?;
+            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
+              println!("Error, skipping: {}", error)
+            }
             println!();
           }
           if let Ok(event) = parse_anchor_event::<LendingAccountBorrowEvent>(event_data) {
             println!("BORROW!");
             println!("  Transaction: {}", signature);
             
-            self.handle_account(&event.header.marginfi_account).await?;
+            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
+              println!("Error, skipping: {}", error)
+            }
             println!();
           }
           if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
             println!("WITHDRAW!");
             println!("  Transaction: {}", signature);
             
-            self.handle_account(&event.header.marginfi_account).await?;
+            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
+              println!("Error, skipping: {}", error)
+            }
             println!();
           }
         }
