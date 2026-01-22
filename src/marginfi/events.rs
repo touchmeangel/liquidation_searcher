@@ -177,6 +177,19 @@ pub struct LendingAccountWithdrawEvent {
 }
 
 #[event]
+pub struct MarginfiAccountCreateEvent {
+    pub header: AccountEventHeader,
+}
+
+#[event]
+pub struct MarginfiAccountTransferToNewAccount {
+    pub header: AccountEventHeader,
+    pub old_account: Pubkey,
+    pub old_account_authority: Pubkey,
+    pub new_account_authority: Pubkey,
+}
+
+#[event]
 pub struct HealthPulseEvent {
   pub account: Pubkey,
   pub health_cache: HealthCache,
