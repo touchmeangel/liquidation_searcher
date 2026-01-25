@@ -13,22 +13,27 @@ use instructions::*;
 use consts::*;
 pub use errors::*;
 use events::*;
+use solana_rpc_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
+use solana_transaction_status_client_types::option_serializer::OptionSerializer;
 use wrapped_i80f48::*;
 use user::*;
 
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
 use solana_rpc_client_types::config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
-use anchor_client::solana_sdk::signature::Keypair;
+use anchor_client::solana_sdk::signature::{Keypair, Signature};
 use tokio_stream::StreamExt;
 use std::time::Instant;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
+
+const TX_BATCH_SIZE: usize = 1024;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
@@ -49,20 +54,71 @@ impl Marginfi {
   }
 
   pub async fn scan_for_targets(&self) -> anyhow::Result<()> {
+    let mut before_signature: Option<Signature> = None;
+
+    println!("NEXT BATCH");
+    loop {
+      let sig_config = GetConfirmedSignaturesForAddress2Config {
+        before: before_signature,
+        until: None,
+        limit: Some(TX_BATCH_SIZE),
+        commitment: Some(CommitmentConfig::confirmed()),
+      };
+
+      let signatures = self.rpc_client.get_signatures_for_address_with_config(
+        &MARGINFI_PROGRAM_ID,
+        sig_config,
+      ).await?;
+
+      if signatures.is_empty() {
+        break;
+      }
+
+      for sig_info in &signatures {
+        let signature = Signature::from_str(&sig_info.signature)?;
+        
+        println!("TX: {}", signature);
+        let tx = match self.rpc_client.get_transaction(
+          &signature,
+          solana_transaction_status_client_types::UiTransactionEncoding::Json,
+        ).await {
+          Ok(tx) => tx,
+          Err(e) => {
+            eprintln!("Error fetching transaction {}: {}", signature, e);
+            continue;
+          }
+        };
+        
+        if let Some(meta) = tx.transaction.meta {
+          if let OptionSerializer::Some(log_messages) = meta.log_messages {
+            self.handle_logs(&log_messages).await;
+          }
+        }
+        println!();
+      }
+
+      if signatures.len() < TX_BATCH_SIZE {
+        break;
+      }
+      
+      before_signature = Some(Signature::from_str(&signatures.last().unwrap().signature)?);
+    }
+    println!("NO TXs LEFT");
+
     anyhow::Ok(())
   }
 
   pub async fn listen_for_targets(&self) -> anyhow::Result<()> {
     let (mut logs, _unsub) = self.pubsub
-        .logs_subscribe(
-            RpcTransactionLogsFilter::Mentions(vec![MARGINFI_PROGRAM_ID.to_string()]),
-            RpcTransactionLogsConfig {
-              commitment: Some(CommitmentConfig::confirmed()),
-            },
-        )
-        .await?;
+      .logs_subscribe(
+        RpcTransactionLogsFilter::Mentions(vec![MARGINFI_PROGRAM_ID.to_string()]),
+        RpcTransactionLogsConfig {
+          commitment: Some(CommitmentConfig::confirmed()),
+        },
+      )
+      .await?;
 
-        println!("✅ Connected! Listening for liquidation events...\n");
+      println!("✅ Connected! Listening for liquidation events...\n");
 
     while let Some(response) = logs.next().await {
       let signature = &response.value.signature;
@@ -72,40 +128,44 @@ impl Marginfi {
         continue;
       }
 
-      let mut marginfi_accounts = Vec::new();
-
       println!("TX: {}", signature);
-      for log in &response.value.logs {
-        if let Some(event_data) = log.strip_prefix("Program data: ") {
-          if let Ok(event) = parse_anchor_event::<LendingAccountDepositEvent>(event_data) {
-            println!("  DEPOSIT!");
-            marginfi_accounts.push(event.header.marginfi_account);
-          }
-          if let Ok(event) = parse_anchor_event::<LendingAccountBorrowEvent>(event_data) {
-            println!("  BORROW!");
-            marginfi_accounts.push(event.header.marginfi_account);
-          }
-          if let Ok(event) = parse_anchor_event::<LendingAccountRepayEvent>(event_data) {
-            println!("  REPAY!");
-            marginfi_accounts.push(event.header.marginfi_account);
-          }
-          if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
-            println!("  WITHDRAW!");
-            marginfi_accounts.push(event.header.marginfi_account);
-          }
-        }
-      }
-      
-      let mut seen = HashSet::new();
-      for account in marginfi_accounts.into_iter().filter(|x| seen.insert(x.clone())) {
-        if let Err(error) = self.handle_account(&account).await {
-          println!("Error, skipping: {}", error)
-        }
-      }
+      self.handle_logs(&response.value.logs).await;
       println!();
     }
 
     anyhow::Ok(())
+  }
+
+  async fn handle_logs(&self, logs: &[String]) {
+    let mut marginfi_accounts = Vec::new();
+
+    for log in logs {
+      if let Some(event_data) = log.strip_prefix("Program data: ") {
+        if let Ok(event) = parse_anchor_event::<LendingAccountDepositEvent>(event_data) {
+          println!("  DEPOSIT!");
+          marginfi_accounts.push(event.header.marginfi_account);
+        }
+        if let Ok(event) = parse_anchor_event::<LendingAccountBorrowEvent>(event_data) {
+          println!("  BORROW!");
+          marginfi_accounts.push(event.header.marginfi_account);
+        }
+        if let Ok(event) = parse_anchor_event::<LendingAccountRepayEvent>(event_data) {
+          println!("  REPAY!");
+          marginfi_accounts.push(event.header.marginfi_account);
+        }
+        if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
+          println!("  WITHDRAW!");
+          marginfi_accounts.push(event.header.marginfi_account);
+        }
+      }
+    }
+
+    let mut seen = HashSet::new();
+    for account in marginfi_accounts.into_iter().filter(|x| seen.insert(*x)) {
+      if let Err(error) = self.handle_account(&account).await {
+        println!("Error, skipping: {}", error)
+      }
+    }
   }
 
   async fn handle_account(&self, account_pubkey: &anchor_lang::prelude::Pubkey) -> anyhow::Result<()> {
