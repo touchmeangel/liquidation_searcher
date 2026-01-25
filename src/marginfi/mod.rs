@@ -16,6 +16,7 @@ use events::*;
 use wrapped_i80f48::*;
 use user::*;
 
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
@@ -47,6 +48,10 @@ impl Marginfi {
     anyhow::Ok(Self { pubsub, rpc_client, client, program })
   }
 
+  pub async fn scan_for_targets(&self) -> anyhow::Result<()> {
+    anyhow::Ok(())
+  }
+
   pub async fn listen_for_targets(&self) -> anyhow::Result<()> {
     let (mut logs, _unsub) = self.pubsub
         .logs_subscribe(
@@ -67,46 +72,37 @@ impl Marginfi {
         continue;
       }
 
+      let mut marginfi_accounts = Vec::new();
+
+      println!("TX: {}", signature);
       for log in &response.value.logs {
         if let Some(event_data) = log.strip_prefix("Program data: ") {
           if let Ok(event) = parse_anchor_event::<LendingAccountDepositEvent>(event_data) {
-            println!("DEPOSIT!");
-            println!("  Transaction: {}", signature);
-            
-            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
-              println!("Error, skipping: {}", error)
-            }
-            println!();
+            println!("  DEPOSIT!");
+            marginfi_accounts.push(event.header.marginfi_account);
           }
           if let Ok(event) = parse_anchor_event::<LendingAccountBorrowEvent>(event_data) {
-            println!("BORROW!");
-            println!("  Transaction: {}", signature);
-            
-            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
-              println!("Error, skipping: {}", error)
-            }
-            println!();
+            println!("  BORROW!");
+            marginfi_accounts.push(event.header.marginfi_account);
           }
           if let Ok(event) = parse_anchor_event::<LendingAccountRepayEvent>(event_data) {
-            println!("REPAY!");
-            println!("  Transaction: {}", signature);
-            
-            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
-              println!("Error, skipping: {}", error)
-            }
-            println!();
+            println!("  REPAY!");
+            marginfi_accounts.push(event.header.marginfi_account);
           }
           if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
-            println!("WITHDRAW!");
-            println!("  Transaction: {}", signature);
-            
-            if let Err(error) = self.handle_account(&event.header.marginfi_account).await {
-              println!("Error, skipping: {}", error)
-            }
-            println!();
+            println!("  WITHDRAW!");
+            marginfi_accounts.push(event.header.marginfi_account);
           }
         }
       }
+      
+      let mut seen = HashSet::new();
+      for account in marginfi_accounts.into_iter().filter(|x| seen.insert(x.clone())) {
+        if let Err(error) = self.handle_account(&account).await {
+          println!("Error, skipping: {}", error)
+        }
+      }
+      println!();
     }
 
     anyhow::Ok(())
