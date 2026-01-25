@@ -35,7 +35,7 @@ use tokio::time::{sleep, Duration, Instant};
 use crate::consts::MARGINFI_PROGRAM_ID;
 
 const TX_BATCH_SIZE: usize = 128;
-const CONCURRENT_TX_REQUESTS: usize = 10;
+const CONCURRENT_TX_REQUESTS: usize = 5;
 const MAX_TX_RETRIES: u32 = 10;
 const BASE_TX_DELAY_MS: u64 = 200;
 
