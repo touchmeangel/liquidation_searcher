@@ -33,7 +33,7 @@ use std::time::Instant;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 
-const TX_BATCH_SIZE: usize = 1024;
+const TX_BATCH_SIZE: usize = 1000;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
