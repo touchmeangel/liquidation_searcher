@@ -28,12 +28,14 @@ use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
 use anchor_client::solana_sdk::signature::{Keypair, Signature};
-use tokio_stream::StreamExt;
+use futures_util::stream::StreamExt;
+use tokio_stream::iter;
 use std::time::Instant;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 
-const TX_BATCH_SIZE: usize = 1000;
+const TX_BATCH_SIZE: usize = 128;
+const CONCURRENT_TX_REQUESTS: usize = 10;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
@@ -58,43 +60,47 @@ impl Marginfi {
 
     println!("NEXT BATCH");
     loop {
-      let config = RpcTransactionConfig {
-        encoding: Some(solana_transaction_status_client_types::UiTransactionEncoding::Binary),
-        commitment: Some(CommitmentConfig::confirmed()),
-        max_supported_transaction_version: Some(0),
-      };
-
       let sig_config = GetConfirmedSignaturesForAddress2Config {
         before: before_signature,
         until: None,
         limit: Some(TX_BATCH_SIZE),
         commitment: Some(CommitmentConfig::confirmed()),
       };
-
+  
       let signatures = self.rpc_client.get_signatures_for_address_with_config(
         &MARGINFI_PROGRAM_ID,
         sig_config,
       ).await?;
-
+  
       if signatures.is_empty() {
         break;
       }
-
-      for sig_info in &signatures {
-        let signature = Signature::from_str(&sig_info.signature)?;
-        
-        println!("TX: {}", signature);
-        let tx = match self.rpc_client.get_transaction_with_config(
-          &signature,
-          config
-        ).await {
-          Ok(tx) => tx,
-          Err(e) => {
-            eprintln!("Error fetching transaction {}: {}", signature, e);
-            continue;
+      
+      let results = iter(&signatures)
+        .map(|sig_info| async {
+          let signature = Signature::from_str(&sig_info.signature).ok()?;
+          
+          let config = RpcTransactionConfig {
+            encoding: Some(solana_transaction_status_client_types::UiTransactionEncoding::Binary),
+            commitment: Some(CommitmentConfig::confirmed()),
+            max_supported_transaction_version: Some(0),
+          };
+  
+          println!("TX: {}", signature);
+          
+          match self.rpc_client.get_transaction_with_config(&signature, config).await {
+            Ok(tx) => Some((signature, tx)),
+            Err(e) => {
+              eprintln!("Error fetching transaction {}: {}", signature, e);
+              None
+            }
           }
-        };
-        
+        })
+        .buffer_unordered(CONCURRENT_TX_REQUESTS)
+        .collect::<Vec<_>>()
+        .await;
+  
+      for (signature, tx) in results.into_iter().flatten() {
         if let Some(meta) = tx.transaction.meta {
           if let OptionSerializer::Some(log_messages) = meta.log_messages {
             self.handle_logs(&log_messages).await;
@@ -102,7 +108,7 @@ impl Marginfi {
         }
         println!();
       }
-
+  
       if signatures.len() < TX_BATCH_SIZE {
         break;
       }

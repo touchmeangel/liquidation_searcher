@@ -2141,6 +2141,7 @@ dependencies = [
  "enum_dispatch",
  "fixed",
  "fixed-macro",
+ "futures-util",
  "pretty_assertions",
  "pyth-solana-receiver-sdk",
  "serde",
