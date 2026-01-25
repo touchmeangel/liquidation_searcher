@@ -30,12 +30,14 @@ use anchor_client::{Client, Cluster, Program};
 use anchor_client::solana_sdk::signature::{Keypair, Signature};
 use futures_util::stream::StreamExt;
 use tokio_stream::iter;
-use std::time::Instant;
+use tokio::time::{sleep, Duration, Instant};
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 
 const TX_BATCH_SIZE: usize = 128;
 const CONCURRENT_TX_REQUESTS: usize = 10;
+const MAX_TX_RETRIES: u32 = 10;
+const BASE_TX_DELAY_MS: u64 = 200;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
@@ -76,30 +78,57 @@ impl Marginfi {
         break;
       }
       
+      println!("FETCHING LOGS FROM {} TXS", signatures.len());
       let results = iter(&signatures)
         .map(|sig_info| async {
           let signature = Signature::from_str(&sig_info.signature).ok()?;
-          
+        
           let config = RpcTransactionConfig {
             encoding: Some(solana_transaction_status_client_types::UiTransactionEncoding::Binary),
             commitment: Some(CommitmentConfig::confirmed()),
             max_supported_transaction_version: Some(0),
           };
   
-          println!("TX: {}", signature);
-          
-          match self.rpc_client.get_transaction_with_config(&signature, config).await {
-            Ok(tx) => Some((signature, tx)),
-            Err(e) => {
-              eprintln!("Error fetching transaction {}: {}", signature, e);
-              None
+          for attempt in 0..MAX_TX_RETRIES {
+            match self.rpc_client.get_transaction_with_config(&signature, config).await {
+              Ok(tx) => {
+                if attempt > 0 {
+                  println!("TX: {} (succeeded after {} retries)", signature, attempt);
+                } else {
+                  println!("TX: {}", signature);
+                }
+                return Some((signature, tx));
+              }
+              Err(e) => {
+                let error_str = e.to_string();
+                
+                if error_str.contains("429") || error_str.contains("Too Many Requests") {
+                  if attempt < MAX_TX_RETRIES - 1 {
+                    let delay = BASE_TX_DELAY_MS * 2_u64.pow(attempt);
+                    eprintln!(
+                      "Rate limited for {}, retrying in {}ms (attempt {}/{})",
+                      signature, delay, attempt + 1, MAX_TX_RETRIES
+                    );
+                    sleep(Duration::from_millis(delay)).await;
+                    continue;
+                  } else {
+                    eprintln!("Max retries reached for transaction {}: {}", signature, e);
+                    return None;
+                  }
+                } else {
+                  eprintln!("Error fetching transaction {}: {}", signature, e);
+                  return None;
+                }
+              }
             }
           }
+          None
         })
         .buffer_unordered(CONCURRENT_TX_REQUESTS)
         .collect::<Vec<_>>()
         .await;
-  
+      println!();
+
       for (signature, tx) in results.into_iter().flatten() {
         if let Some(meta) = tx.transaction.meta {
           if let OptionSerializer::Some(log_messages) = meta.log_messages {
