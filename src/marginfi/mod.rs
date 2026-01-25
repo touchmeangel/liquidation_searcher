@@ -129,11 +129,23 @@ impl Marginfi {
         .await;
       println!();
 
+      let mut total_marginfi_accounts = Vec::new();
       for (signature, tx) in results.into_iter().flatten() {
         if let Some(meta) = tx.transaction.meta {
           if let OptionSerializer::Some(log_messages) = meta.log_messages {
-            self.handle_logs(&log_messages).await;
+            let mut marginfi_accounts = self.parse_logs(&log_messages);
+            total_marginfi_accounts.append(&mut marginfi_accounts);
           }
+        }
+      }
+
+      let mut seen = HashSet::new();
+      let unique: Vec<_> = total_marginfi_accounts.into_iter().filter(|x| seen.insert(*x)).collect();
+      drop(seen);
+      println!("FOUND {} UNIQUE ACCOUNTS", unique.len());
+      for account in unique {
+        if let Err(error) = self.handle_account(&account).await {
+          println!("Error, skipping: {}", error)
         }
         println!();
       }
@@ -143,6 +155,8 @@ impl Marginfi {
       }
       
       before_signature = Some(Signature::from_str(&signatures.last().unwrap().signature)?);
+      println!("-----------------------------------------------------");
+      println!();
     }
     println!("NO TXs LEFT");
 
@@ -170,43 +184,40 @@ impl Marginfi {
       }
 
       println!("TX: {}", signature);
-      self.handle_logs(&response.value.logs).await;
+      let marginfi_accounts = self.parse_logs(&response.value.logs);
+      let mut seen = HashSet::new();
+      for account in marginfi_accounts.into_iter().filter(|x| seen.insert(*x)) {
+        if let Err(error) = self.handle_account(&account).await {
+          println!("Error, skipping: {}", error)
+        }
+      }
       println!();
     }
 
     anyhow::Ok(())
   }
 
-  async fn handle_logs(&self, logs: &[String]) {
+  fn parse_logs(&self, logs: &[String]) -> Vec<anchor_lang::prelude::Pubkey> {
     let mut marginfi_accounts = Vec::new();
 
     for log in logs {
       if let Some(event_data) = log.strip_prefix("Program data: ") {
         if let Ok(event) = parse_anchor_event::<LendingAccountDepositEvent>(event_data) {
-          println!("  DEPOSIT!");
           marginfi_accounts.push(event.header.marginfi_account);
         }
         if let Ok(event) = parse_anchor_event::<LendingAccountBorrowEvent>(event_data) {
-          println!("  BORROW!");
           marginfi_accounts.push(event.header.marginfi_account);
         }
         if let Ok(event) = parse_anchor_event::<LendingAccountRepayEvent>(event_data) {
-          println!("  REPAY!");
           marginfi_accounts.push(event.header.marginfi_account);
         }
         if let Ok(event) = parse_anchor_event::<LendingAccountWithdrawEvent>(event_data) {
-          println!("  WITHDRAW!");
           marginfi_accounts.push(event.header.marginfi_account);
         }
       }
     }
 
-    let mut seen = HashSet::new();
-    for account in marginfi_accounts.into_iter().filter(|x| seen.insert(*x)) {
-      if let Err(error) = self.handle_account(&account).await {
-        println!("Error, skipping: {}", error)
-      }
-    }
+    marginfi_accounts
   }
 
   async fn handle_account(&self, account_pubkey: &anchor_lang::prelude::Pubkey) -> anyhow::Result<()> {
