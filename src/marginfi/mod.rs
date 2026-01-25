@@ -23,7 +23,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
-use solana_rpc_client_types::config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter};
+use solana_rpc_client_types::config::{RpcTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
@@ -58,6 +58,12 @@ impl Marginfi {
 
     println!("NEXT BATCH");
     loop {
+      let config = RpcTransactionConfig {
+        encoding: Some(solana_transaction_status_client_types::UiTransactionEncoding::Binary),
+        commitment: Some(CommitmentConfig::confirmed()),
+        max_supported_transaction_version: Some(0),
+      };
+
       let sig_config = GetConfirmedSignaturesForAddress2Config {
         before: before_signature,
         until: None,
@@ -78,9 +84,9 @@ impl Marginfi {
         let signature = Signature::from_str(&sig_info.signature)?;
         
         println!("TX: {}", signature);
-        let tx = match self.rpc_client.get_transaction(
+        let tx = match self.rpc_client.get_transaction_with_config(
           &signature,
-          solana_transaction_status_client_types::UiTransactionEncoding::Json,
+          config
         ).await {
           Ok(tx) => tx,
           Err(e) => {
