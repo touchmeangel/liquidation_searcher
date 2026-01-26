@@ -76,6 +76,7 @@ impl Marginfi {
       sort_results: None,
     };
 
+    let start = Instant::now();
     let accounts = self.rpc_client
       .get_program_accounts_with_config(&MARGINFI_PROGRAM_ID, config)
       .await?;
@@ -85,7 +86,8 @@ impl Marginfi {
       .map(|(pubkey, _account)| pubkey)
       .collect();
   
-    println!("Found {} marginfi accounts", pubkeys.len());
+    let duration = start.elapsed();
+    println!("Found {} marginfi accounts ({:?})", pubkeys.len(), duration);
 
     anyhow::Ok(())
   }
