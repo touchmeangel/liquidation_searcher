@@ -24,22 +24,16 @@ use std::rc::Rc;
 
 use anchor_lang::prelude::Pubkey;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
-use solana_rpc_client_types::config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
+use solana_rpc_client_types::config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
-use anchor_client::solana_sdk::signature::{Keypair, Signature};
+use anchor_client::solana_sdk::signature::Keypair;
 use futures_util::stream::StreamExt;
-use tokio_stream::iter;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::Instant;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 use crate::marginfi::types::MarginfiAccount;
-
-const TX_BATCH_SIZE: usize = 1000;
-const CONCURRENT_TX_REQUESTS: usize = 10;
-const MAX_TX_RETRIES: u32 = 10;
-const BASE_TX_DELAY_MS: u64 = 200;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
@@ -59,7 +53,7 @@ impl Marginfi {
     anyhow::Ok(Self { pubsub, rpc_client, client, program })
   }
 
-  pub async fn scan_for_targets(&self) -> anyhow::Result<()> {
+  pub async fn look_for_targets(&self) -> anyhow::Result<()> {
     let filters = vec![
       RpcFilterType::Memcmp(Memcmp::new(
         0,

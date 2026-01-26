@@ -13,7 +13,7 @@ async fn main() {
     let config = Config::open().await?;
 
     let marginfi = Marginfi::new(config.url, config.ws_url).await?;
-    marginfi.scan_for_targets().await?;
+    marginfi.look_for_targets().await?;
     
     Ok(())
   }.await;
