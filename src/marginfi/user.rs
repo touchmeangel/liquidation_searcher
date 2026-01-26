@@ -74,24 +74,30 @@ impl MarginfiUserAccount {
       .flatten()
       .collect();
   
-    let all_configs = OraclePriceFeedAdapterConfig::load_multiple(
+    let all_configs_result = OraclePriceFeedAdapterConfig::load_multiple(
       rpc_client, 
       &successfully_loaded_banks
-    ).await.unwrap_or_default();
+    ).await;
   
-    let all_price_feeds: Vec<Option<OraclePriceFeedAdapter>> = all_configs
-      .into_iter()
-      .map(|cfg| OraclePriceFeedAdapter::try_from_config(cfg).ok())
-      .collect();
-  
-    let price_feeds_map: std::collections::HashMap<Pubkey, OraclePriceFeedAdapter> = 
-      all_bank_pubkeys
-        .iter()
-        .zip(all_price_feeds.into_iter())
-        .filter_map(|(pk, opt_pf)| {
-          opt_pf.map(|pf| (*pk, pf))
-        })
-        .collect();
+    let price_feeds_map: std::collections::HashMap<Pubkey, anyhow::Result<OraclePriceFeedAdapter>> = 
+      match all_configs_result {
+        Ok(configs) => {
+          all_bank_pubkeys
+            .iter()
+            .zip(configs.into_iter())
+            .map(|(pk, cfg)| {
+              let price_feed_result = OraclePriceFeedAdapter::try_from_config(cfg).map_err(|err| anyhow::anyhow!(err));
+              (*pk, price_feed_result)
+            })
+            .collect()
+        }
+        Err(e) => {
+          all_bank_pubkeys
+            .iter()
+            .map(|pk| (*pk, Err(anyhow::anyhow!("Failed to load oracle configs: {}", e))))
+            .collect()
+        }
+      };
   
     let user_accounts: Vec<anyhow::Result<Self>> = marginfi_accounts
       .into_iter()
@@ -107,10 +113,24 @@ impl MarginfiUserAccount {
             .get(&balance.bank_pk)
             .ok_or_else(|| anyhow::anyhow!("Missing bank {} for account {}", balance.bank_pk, pubkey))?;
           
-          let price_feed = price_feeds_map
-            .get(&balance.bank_pk)
-            .ok_or_else(|| anyhow::anyhow!("Missing price feed for bank {} in account {}", balance.bank_pk, pubkey))?
-            .clone();
+          let price_feed = match price_feeds_map.get(&balance.bank_pk) {
+            Some(Ok(pf)) => pf.clone(),
+            Some(Err(e)) => {
+              return Err(anyhow::anyhow!(
+                "Failed to load price feed for bank {} in account {}: {}", 
+                balance.bank_pk, 
+                pubkey,
+                e
+              ));
+            }
+            None => {
+              return Err(anyhow::anyhow!(
+                "Missing price feed for bank {} in account {}", 
+                balance.bank_pk, 
+                pubkey
+              ));
+            }
+          };
           
           banks.push(BankAccount {
             bank: *bank,
