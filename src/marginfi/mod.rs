@@ -8,23 +8,23 @@ mod macros;
 mod prelude;
 mod wrapped_i80f48;
 
+use anchor_lang::Discriminator;
 use fixed::types::I80F48;
 use instructions::*;
 use consts::*;
 pub use errors::*;
 use events::*;
-use solana_rpc_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
-use solana_transaction_status_client_types::option_serializer::OptionSerializer;
+use solana_account_decoder::UiDataSliceConfig;
+use solana_rpc_client_types::filter::{Memcmp, RpcFilterType};
 use wrapped_i80f48::*;
 use user::*;
 
 use std::collections::HashSet;
 use std::rc::Rc;
-use std::str::FromStr;
 
 use anchor_lang::prelude::Pubkey;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
-use solana_rpc_client_types::config::{RpcTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
+use solana_rpc_client_types::config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
@@ -34,6 +34,7 @@ use tokio_stream::iter;
 use tokio::time::{sleep, Duration, Instant};
 
 use crate::consts::MARGINFI_PROGRAM_ID;
+use crate::marginfi::types::MarginfiAccount;
 
 const TX_BATCH_SIZE: usize = 1000;
 const CONCURRENT_TX_REQUESTS: usize = 10;
@@ -59,103 +60,38 @@ impl Marginfi {
   }
 
   pub async fn scan_for_targets(&self) -> anyhow::Result<()> {
-    let mut before_signature: Option<Signature> = None;
+    let filters = vec![
+      RpcFilterType::Memcmp(Memcmp::new(
+        0,
+        solana_rpc_client_types::filter::MemcmpEncodedBytes::Bytes(Vec::from(MarginfiAccount::DISCRIMINATOR))
+      )),
+    ];
 
-    println!("NEXT BATCH");
-    loop {
-      let sig_config = GetConfirmedSignaturesForAddress2Config {
-        before: before_signature,
-        until: None,
-        limit: Some(TX_BATCH_SIZE),
+    let config = RpcProgramAccountsConfig {
+      filters: Some(filters),
+      account_config: RpcAccountInfoConfig {
+        encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
+        data_slice: Some(UiDataSliceConfig {
+          offset: 0,
+          length: 0,
+        }),
         commitment: Some(CommitmentConfig::confirmed()),
-      };
-  
-      let signatures = self.rpc_client.get_signatures_for_address_with_config(
-        &MARGINFI_PROGRAM_ID,
-        sig_config,
-      ).await?;
-  
-      if signatures.is_empty() {
-        break;
-      }
-      
-      println!("FETCHING LOGS FROM {} TXS", signatures.len());
-      let results = iter(&signatures)
-        .map(|sig_info| async {
-          let signature = Signature::from_str(&sig_info.signature).ok()?;
-        
-          let config = RpcTransactionConfig {
-            encoding: Some(solana_transaction_status_client_types::UiTransactionEncoding::Binary),
-            commitment: Some(CommitmentConfig::confirmed()),
-            max_supported_transaction_version: Some(0),
-          };
-  
-          for attempt in 0..MAX_TX_RETRIES {
-            match self.rpc_client.get_transaction_with_config(&signature, config).await {
-              Ok(tx) => {
-                if attempt > 0 {
-                  println!("TX: {} (succeeded after {} retries)", signature, attempt);
-                } else {
-                  println!("TX: {}", signature);
-                }
-                return Some((signature, tx));
-              }
-              Err(e) => {
-                let error_str = e.to_string();
-                
-                if error_str.contains("429") || error_str.contains("Too Many Requests") {
-                  if attempt < MAX_TX_RETRIES - 1 {
-                    let delay = BASE_TX_DELAY_MS * 2_u64.pow(attempt);
-                    eprintln!(
-                      "Rate limited for {}, retrying in {}ms (attempt {}/{})",
-                      signature, delay, attempt + 1, MAX_TX_RETRIES
-                    );
-                    sleep(Duration::from_millis(delay)).await;
-                    continue;
-                  } else {
-                    eprintln!("Max retries reached for transaction {}: {}", signature, e);
-                    return None;
-                  }
-                } else {
-                  eprintln!("Error fetching transaction {}: {}", signature, e);
-                  return None;
-                }
-              }
-            }
-          }
-          None
-        })
-        .buffer_unordered(CONCURRENT_TX_REQUESTS)
-        .collect::<Vec<_>>()
-        .await;
-      println!();
+        min_context_slot: None,
+      },
+      with_context: None,
+      sort_results: None,
+    };
 
-      let mut total_marginfi_accounts = Vec::new();
-      for (signature, tx) in results.into_iter().flatten() {
-        if let Some(meta) = tx.transaction.meta {
-          if let OptionSerializer::Some(log_messages) = meta.log_messages {
-            let mut marginfi_accounts = self.parse_logs(&log_messages);
-            total_marginfi_accounts.append(&mut marginfi_accounts);
-          }
-        }
-      }
-
-      let mut seen = HashSet::new();
-      let unique: Vec<_> = total_marginfi_accounts.into_iter().filter(|x| seen.insert(*x)).collect();
-      drop(seen);
-      if let Err(error) = self.handle_accounts(&unique).await {
-        println!("Error fetching accounts: {}", error);
-      }
+    let accounts = self.rpc_client
+      .get_program_accounts_with_config(&MARGINFI_PROGRAM_ID, config)
+      .await?;
   
-      if signatures.len() < TX_BATCH_SIZE {
-        break;
-      }
-      
-      before_signature = Some(Signature::from_str(&signatures.last().unwrap().signature)?);
-      println!("-----------------------------------------------------");
-      println!();
-    }
-    println!("NO TXs LEFT");
+    let pubkeys: Vec<Pubkey> = accounts
+      .into_iter()
+      .map(|(pubkey, _account)| pubkey)
+      .collect();
+  
+    println!("Found {} marginfi accounts", pubkeys.len());
 
     anyhow::Ok(())
   }
