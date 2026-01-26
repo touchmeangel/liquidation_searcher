@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::str::FromStr;
 
+use anchor_lang::prelude::Pubkey;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
 use solana_rpc_client_types::config::{RpcTransactionConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
@@ -142,12 +143,8 @@ impl Marginfi {
       let mut seen = HashSet::new();
       let unique: Vec<_> = total_marginfi_accounts.into_iter().filter(|x| seen.insert(*x)).collect();
       drop(seen);
-      println!("FOUND {} UNIQUE ACCOUNTS", unique.len());
-      for account in unique {
-        if let Err(error) = self.handle_account(&account).await {
-          println!("Error, skipping: {}", error)
-        }
-        println!();
+      if let Err(error) = self.handle_accounts(&unique).await {
+        println!("Error fetching accounts: {}", error);
       }
   
       if signatures.len() < TX_BATCH_SIZE {
@@ -186,10 +183,10 @@ impl Marginfi {
       println!("TX: {}", signature);
       let marginfi_accounts = self.parse_logs(&response.value.logs);
       let mut seen = HashSet::new();
-      for account in marginfi_accounts.into_iter().filter(|x| seen.insert(*x)) {
-        if let Err(error) = self.handle_account(&account).await {
-          println!("Error, skipping: {}", error)
-        }
+      let unique: Vec<_> = marginfi_accounts.into_iter().filter(|x| seen.insert(*x)).collect();
+      drop(seen);
+      if let Err(error) = self.handle_accounts(&unique).await {
+        println!("Error fetching accounts: {}", error);
       }
       println!();
     }
@@ -220,13 +217,32 @@ impl Marginfi {
     marginfi_accounts
   }
 
-  async fn handle_account(&self, account_pubkey: &anchor_lang::prelude::Pubkey) -> anyhow::Result<()> {
+  async fn handle_accounts(&self, accounts: &[Pubkey]) -> anyhow::Result<()> {
     let start = Instant::now();
-    let account = MarginfiUserAccount::from_pubkey(&self.rpc_client, account_pubkey).await?;
+    let marginfi_accounts = MarginfiUserAccount::from_pubkeys(&self.rpc_client, accounts).await?;
+    let duration = start.elapsed();
+    println!("FOUND {} UNIQUE ACCOUNTS ({:?})", marginfi_accounts.len(), duration);
+    for result in marginfi_accounts {
+      let marginfi_account = match result {
+        Ok(marginfi_account) => marginfi_account,
+        Err(error) => {
+          println!("Error, skipping: {}", error);
+          continue;   
+        },
+      };
+
+      if let Err(error ) = self.handle_account(marginfi_account) {
+        println!("Error: {}", error);
+      }
+    }
+
+    anyhow::Ok(())
+  }
+
+  fn handle_account(&self, account: MarginfiUserAccount) -> anyhow::Result<()> {
     let marginfi_account = account.account();
     let bank_accounts = account.bank_accounts();
-    let duration = start.elapsed();
-    println!("ACCOUNT DATA ({:?})", duration);
+    println!("ACCOUNT DATA");
     println!("  Owner: {}", marginfi_account.authority);
     let asset_value = account.asset_value()?;
     println!("  Lended assets ({}$):", asset_value);
