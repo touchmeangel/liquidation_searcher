@@ -35,6 +35,8 @@ use tokio::time::Instant;
 use crate::consts::MARGINFI_PROGRAM_ID;
 use crate::marginfi::types::MarginfiAccount;
 
+const ACCOUNTS_BATCH: usize = 10000;
+
 pub struct Marginfi {
   pubsub: PubsubClient,
   rpc_client: RpcClient,
@@ -65,10 +67,7 @@ impl Marginfi {
       filters: Some(filters),
       account_config: RpcAccountInfoConfig {
         encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
-        data_slice: Some(UiDataSliceConfig {
-          offset: 0,
-          length: 0,
-        }),
+        data_slice: None,
         commitment: Some(CommitmentConfig::confirmed()),
         min_context_slot: None,
       },
@@ -77,17 +76,26 @@ impl Marginfi {
     };
 
     let start = Instant::now();
-    let accounts = self.rpc_client
+    let mut accounts = self.rpc_client
       .get_program_accounts_with_config(&MARGINFI_PROGRAM_ID, config)
       .await?;
   
-    let pubkeys: Vec<Pubkey> = accounts
-      .into_iter()
-      .map(|(pubkey, _account)| pubkey)
-      .collect();
-  
     let duration = start.elapsed();
-    println!("Found {} marginfi accounts ({:?})", pubkeys.len(), duration);
+    println!("Found {} marginfi accounts ({:?})", accounts.len(), duration);
+
+    let mut batches: Vec<Vec<_>> = Vec::new();
+
+    while !accounts.is_empty() {
+      let take = accounts.drain(..ACCOUNTS_BATCH.min(accounts.len())).collect();
+      batches.push(take);
+    }
+
+    for accounts_batch in batches {
+      let (pubkeys, accounts): (Vec<_>, Vec<_>) = accounts_batch.into_iter().unzip();
+      if let Err(error) = self.handle_accounts(&pubkeys, &accounts).await {
+        println!("Error fetching accounts: {}", error);
+      }
+    }
 
     anyhow::Ok(())
   }
@@ -117,7 +125,7 @@ impl Marginfi {
       let mut seen = HashSet::new();
       let unique: Vec<_> = marginfi_accounts.into_iter().filter(|x| seen.insert(*x)).collect();
       drop(seen);
-      if let Err(error) = self.handle_accounts(&unique).await {
+      if let Err(error) = self.handle_pubkeys(&unique).await {
         println!("Error fetching accounts: {}", error);
       }
       println!();
@@ -149,7 +157,7 @@ impl Marginfi {
     marginfi_accounts
   }
 
-  async fn handle_accounts(&self, accounts: &[Pubkey]) -> anyhow::Result<()> {
+  async fn handle_pubkeys(&self, accounts: &[Pubkey]) -> anyhow::Result<()> {
     let start = Instant::now();
     let marginfi_accounts = MarginfiUserAccount::from_pubkeys(&self.rpc_client, accounts).await?;
     let duration = start.elapsed();
@@ -167,6 +175,29 @@ impl Marginfi {
         println!("Error: {}", error);
       }
     }
+
+    anyhow::Ok(())
+  }
+
+  async fn handle_accounts(&self, pubkeys: &[Pubkey], accounts: &[solana_account::Account]) -> anyhow::Result<()> {
+    let start: Instant = Instant::now();
+    let marginfi_accounts = MarginfiUserAccount::from_accounts(&self.rpc_client, pubkeys, accounts).await?;
+    let duration = start.elapsed();
+    println!("FOUND {} UNIQUE ACCOUNTS ({:?})", marginfi_accounts.len(), duration);
+    // for result in marginfi_accounts {
+    //   let marginfi_account = match result {
+    //     Ok(marginfi_account) => marginfi_account,
+    //     Err(error) => {
+    //       println!("Error, skipping: {}", error);
+    //       continue;   
+    //     },
+    //   };
+
+    //   if let Err(error ) = self.handle_account(marginfi_account) {
+    //     println!("Error: {}", error);
+    //   }
+    //   println!()
+    // }
 
     anyhow::Ok(())
   }
