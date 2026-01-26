@@ -13,25 +13,18 @@ pub struct MarginfiUserAccount {
 }
 
 impl MarginfiUserAccount {
-  pub async fn from_pubkeys(
+  pub async fn from_accounts(
     rpc_client: &RpcClient, 
-    account_pubkeys: &[Pubkey]
+    account_pubkeys: &[Pubkey],
+    accounts: &[solana_account::Account]
   ) -> anyhow::Result<Vec<anyhow::Result<Self>>> {
-    if account_pubkeys.is_empty() {
+    if accounts.is_empty() {
       return Ok(Vec::new());
     }
-  
-    let marginfi_accounts_data = rpc_client
-      .get_multiple_accounts(account_pubkeys)
-      .await?;
-  
-    let marginfi_accounts: Vec<Option<MarginfiAccount>> = marginfi_accounts_data
+
+    let marginfi_accounts: Vec<Option<MarginfiAccount>> = accounts
       .into_iter()
-      .map(|opt_account| {
-        opt_account.and_then(|account| {
-          parse_account::<MarginfiAccount>(&account.data).ok()
-        })
-      })
+      .map(|account| parse_account::<MarginfiAccount>(&account.data).ok())
       .collect();
   
     let mut all_bank_pubkeys: Vec<Pubkey> = marginfi_accounts
@@ -155,6 +148,21 @@ impl MarginfiUserAccount {
       .collect();
   
     Ok(user_accounts)
+  }
+
+  pub async fn from_pubkeys(
+    rpc_client: &RpcClient, 
+    account_pubkeys: &[Pubkey]
+  ) -> anyhow::Result<Vec<anyhow::Result<Self>>> {
+    if account_pubkeys.is_empty() {
+      return Ok(Vec::new());
+    }
+  
+    let marginfi_accounts_data = rpc_client
+      .get_multiple_accounts(account_pubkeys)
+      .await?;
+
+    Self::from_accounts(rpc_client, account_pubkeys, &marginfi_accounts_data.into_iter().flatten().collect::<Vec<_>>()).await
   }
   
   pub async fn from_pubkey(rpc_client: &RpcClient, account_pubkey: &Pubkey) -> anyhow::Result<Self> {
