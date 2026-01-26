@@ -35,7 +35,7 @@ use tokio::time::Instant;
 use crate::consts::MARGINFI_PROGRAM_ID;
 use crate::marginfi::types::MarginfiAccount;
 
-const ACCOUNTS_BATCH: usize = 10000;
+const ACCOUNTS_BATCH: usize = 1000;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
@@ -67,7 +67,10 @@ impl Marginfi {
       filters: Some(filters),
       account_config: RpcAccountInfoConfig {
         encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
-        data_slice: None,
+        data_slice: Some(UiDataSliceConfig {
+          offset: 0,
+          length: 0,
+        }),
         commitment: Some(CommitmentConfig::confirmed()),
         min_context_slot: None,
       },
@@ -91,8 +94,8 @@ impl Marginfi {
     }
 
     for accounts_batch in batches {
-      let (pubkeys, accounts): (Vec<_>, Vec<_>) = accounts_batch.into_iter().unzip();
-      if let Err(error) = self.handle_accounts(&pubkeys, &accounts).await {
+      let (pubkeys, _): (Vec<_>, Vec<_>) = accounts_batch.into_iter().unzip();
+      if let Err(error) = self.handle_pubkeys(&pubkeys).await {
         println!("Error fetching accounts: {}", error);
       }
     }
@@ -162,28 +165,6 @@ impl Marginfi {
     let marginfi_accounts = MarginfiUserAccount::from_pubkeys(&self.rpc_client, accounts).await?;
     let duration = start.elapsed();
     println!("FOUND {} UNIQUE ACCOUNTS ({:?})", marginfi_accounts.len(), duration);
-    for result in marginfi_accounts {
-      let marginfi_account = match result {
-        Ok(marginfi_account) => marginfi_account,
-        Err(error) => {
-          println!("Error, skipping: {}", error);
-          continue;   
-        },
-      };
-
-      if let Err(error ) = self.handle_account(marginfi_account) {
-        println!("Error: {}", error);
-      }
-    }
-
-    anyhow::Ok(())
-  }
-
-  async fn handle_accounts(&self, pubkeys: &[Pubkey], accounts: &[solana_account::Account]) -> anyhow::Result<()> {
-    let start: Instant = Instant::now();
-    let marginfi_accounts = MarginfiUserAccount::from_accounts(&self.rpc_client, pubkeys, accounts).await?;
-    let duration = start.elapsed();
-    println!("FOUND {} UNIQUE ACCOUNTS ({:?})", marginfi_accounts.len(), duration);
     // for result in marginfi_accounts {
     //   let marginfi_account = match result {
     //     Ok(marginfi_account) => marginfi_account,
@@ -196,7 +177,6 @@ impl Marginfi {
     //   if let Err(error ) = self.handle_account(marginfi_account) {
     //     println!("Error: {}", error);
     //   }
-    //   println!()
     // }
 
     anyhow::Ok(())
