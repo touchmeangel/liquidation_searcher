@@ -13,56 +13,117 @@ pub struct MarginfiUserAccount {
 }
 
 impl MarginfiUserAccount {
-  pub async fn from_pubkey(rpc_client: &RpcClient, account_pubkey: &Pubkey) -> anyhow::Result<Self> {
-    let account_data = rpc_client.get_account(account_pubkey).await?.data;
-    let account = parse_account::<MarginfiAccount>(&account_data)
-      .map_err(|e| anyhow::anyhow!("invalid account data: {}", e))?;
-    
-    let bank_pubkeys: Vec<Pubkey> = account
-      .lending_account
-      .get_active_balances_iter()
-      .map(|balance| balance.bank_pk)
-      .collect();
-
-    let bank_accounts = rpc_client.get_multiple_accounts(&bank_pubkeys).await?
+  pub async fn from_pubkeys(
+    rpc_client: &RpcClient, 
+    account_pubkeys: &[Pubkey]
+  ) -> anyhow::Result<Vec<Self>> {
+    if account_pubkeys.is_empty() {
+      return Ok(Vec::new());
+    }
+  
+    let marginfi_accounts_data = rpc_client
+      .get_multiple_accounts(account_pubkeys)
+      .await?
       .into_iter()
       .collect::<Option<Vec<_>>>()
-      .ok_or(anyhow::anyhow!("get_multiple_accounts failed to load all bank accounts"))?;
-
-    let banks = bank_accounts
+      .ok_or(anyhow::anyhow!("Failed to load all marginfi accounts"))?;
+  
+    let marginfi_accounts: Vec<MarginfiAccount> = marginfi_accounts_data
+      .iter()
+      .map(|account| parse_account::<MarginfiAccount>(&account.data))
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| anyhow::anyhow!("Invalid marginfi account data: {}", e))?;
+  
+    let mut all_bank_pubkeys: Vec<Pubkey> = marginfi_accounts
+      .iter()
+      .flat_map(|account| {
+        account
+          .lending_account
+          .get_active_balances_iter()
+          .map(|balance| balance.bank_pk)
+      })
+      .collect();
+  
+    all_bank_pubkeys.sort();
+    all_bank_pubkeys.dedup();
+  
+    let bank_accounts_data = rpc_client
+      .get_multiple_accounts(&all_bank_pubkeys)
+      .await?
+      .into_iter()
+      .collect::<Option<Vec<_>>>()
+      .ok_or(anyhow::anyhow!("Failed to load all bank accounts"))?;
+  
+    let all_banks: Vec<Bank> = bank_accounts_data
       .iter()
       .map(|account| parse_account::<Bank>(&account.data))
       .collect::<Result<Vec<_>, _>>()
-      .map_err(|e| anyhow::anyhow!("invalid bank data: {}", e))?;
-
-    let configs = OraclePriceFeedAdapterConfig::load_multiple(rpc_client, &banks).await?;
-    let price_feeds = configs
+      .map_err(|e| anyhow::anyhow!("Invalid bank data: {}", e))?;
+  
+    let banks_map: std::collections::HashMap<Pubkey, Bank> = all_bank_pubkeys
+      .iter()
+      .zip(all_banks.iter())
+      .map(|(pk, bank)| (*pk, *bank))
+      .collect();
+  
+    let all_configs = OraclePriceFeedAdapterConfig::load_multiple(
+      rpc_client, 
+      &all_banks
+    ).await?;
+  
+    let all_price_feeds: Vec<OraclePriceFeedAdapter> = all_configs
       .into_iter()
       .map(|cfg| OraclePriceFeedAdapter::try_from_config(cfg))
       .collect::<Result<Vec<_>, _>>()?;
-
-    let banks: Vec<BankAccount> = banks
-      .into_iter()
-      .zip(account
-        .lending_account
-        .get_active_balances_iter())
-      .zip(price_feeds)
-      .map(|((bank, balance), price_feed)| BankAccount { bank, price_feed, balance: *balance })
-      .collect();
-
-    let reconciled_emode_config = reconcile_emode_configs(
-      banks
+  
+    let price_feeds_map: std::collections::HashMap<Pubkey, OraclePriceFeedAdapter> = 
+      all_bank_pubkeys
         .iter()
-        .filter(|b| !b.balance.is_empty(BalanceSide::Liabilities))
-        .map(|b| b.bank.emode.emode_config),
-    );
-
-    anyhow::Ok(Self {
-      account,
-      bank_accounts: banks,
-      emode_config: reconciled_emode_config
-    })
-  } 
+        .zip(all_price_feeds.into_iter())
+        .map(|(pk, pf)| (*pk, pf))
+        .collect();
+  
+    let user_accounts: Vec<Self> = marginfi_accounts
+      .into_iter()
+      .map(|account| {
+        let banks: Vec<BankAccount> = account
+          .lending_account
+          .get_active_balances_iter()
+          .filter_map(|balance| {
+            let bank = *banks_map.get(&balance.bank_pk)?;
+            let price_feed = price_feeds_map.get(&balance.bank_pk)?.clone();
+            
+            Some(BankAccount {
+              bank,
+              price_feed,
+              balance: *balance,
+            })
+          })
+          .collect();
+  
+        let reconciled_emode_config = reconcile_emode_configs(
+          banks
+            .iter()
+            .filter(|b| !b.balance.is_empty(BalanceSide::Liabilities))
+            .map(|b| b.bank.emode.emode_config),
+        );
+  
+        Self {
+          account,
+          bank_accounts: banks,
+          emode_config: reconciled_emode_config,
+        }
+      })
+      .collect();
+  
+    Ok(user_accounts)
+  }
+  
+  pub async fn from_pubkey(rpc_client: &RpcClient, account_pubkey: &Pubkey) -> anyhow::Result<Self> {
+    let results = Self::from_pubkeys(rpc_client, &[*account_pubkey]).await?;
+    results.into_iter().next()
+      .ok_or(anyhow::anyhow!("Failed to load account"))
+  }
 
   pub fn account(&self) -> &MarginfiAccount {
     &self.account
