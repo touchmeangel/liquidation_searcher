@@ -609,7 +609,6 @@ impl PythPushOraclePriceFeed {
               MIN_PYTH_PUSH_VERIFICATION_LEVEL,
           )
           .map_err(|e| {
-              debug!("Pyth push oracle error: {:?}", e);
               let error: MarginfiError = e.into();
               error
           })?;
@@ -643,7 +642,6 @@ impl PythPushOraclePriceFeed {
       let price = price_feed_account
           .get_price_unchecked(&price_feed_account.price_message.feed_id)
           .map_err(|e| {
-              println!("Pyth push oracle error: {:?}", e);
               let error: MarginfiError = e.into();
               error
           })?;
