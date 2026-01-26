@@ -187,7 +187,7 @@ impl Marginfi {
       }
     }
 
-    println!("LOADED {} ACCOUNTS, {} HITS ({:?})", pubkeys.len(), hits.len(), duration);
+    println!("CHECKED {} ACCOUNTS, {} HITS ({:?})", pubkeys.len(), hits.len(), duration);
 
     anyhow::Ok(())
   }
