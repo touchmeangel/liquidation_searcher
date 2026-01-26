@@ -160,56 +160,47 @@ impl Marginfi {
     marginfi_accounts
   }
 
-  async fn handle_pubkeys(&self, accounts: &[Pubkey]) -> anyhow::Result<()> {
+  async fn handle_pubkeys(&self, pubkeys: &[Pubkey]) -> anyhow::Result<()> {
     let start = Instant::now();
-    let marginfi_accounts = MarginfiUserAccount::from_pubkeys(&self.rpc_client, accounts).await?;
+    let marginfi_accounts = MarginfiUserAccount::from_pubkeys(&self.rpc_client, pubkeys).await?;
     let duration = start.elapsed();
-    println!("FOUND {} UNIQUE ACCOUNTS ({:?})", marginfi_accounts.len(), duration);
-    // for result in marginfi_accounts {
-    //   let marginfi_account = match result {
-    //     Ok(marginfi_account) => marginfi_account,
-    //     Err(error) => {
-    //       println!("Error, skipping: {}", error);
-    //       continue;   
-    //     },
-    //   };
+    let mut hits = Vec::new();
+    for result in marginfi_accounts {
+      let marginfi_account = match result {
+        Ok(marginfi_account) => marginfi_account,
+        Err(error) => {
+          // println!("Error, skipping: {}", error);
+          continue;   
+        },
+      };
 
-    //   if let Err(error ) = self.handle_account(marginfi_account) {
-    //     println!("Error: {}", error);
-    //   }
-    // }
+      let result = match self.check_account(&marginfi_account) {
+        Ok(result) => result,
+        Err(error) => {
+          println!("Error: {}", error);
+          continue;
+        },
+      };
+
+      if result {
+        hits.push(marginfi_account);
+      }
+    }
+
+    println!("LOADED {} ACCOUNTS, {} HITS ({:?})", pubkeys.len(), hits.len(), duration);
 
     anyhow::Ok(())
   }
 
-  fn handle_account(&self, account: MarginfiUserAccount) -> anyhow::Result<()> {
+  fn check_account(&self, account: &MarginfiUserAccount) -> anyhow::Result<bool> {
     let marginfi_account = account.account();
     let bank_accounts = account.bank_accounts();
-    println!("ACCOUNT DATA");
-    println!("  Owner: {}", marginfi_account.authority);
     let asset_value = account.asset_value()?;
-    println!("  Lended assets ({}$):", asset_value);
-    for bank_account in bank_accounts {
-      let asset_shares: I80F48 = bank_account.balance.asset_shares.into();
-      if asset_shares.is_zero() {
-        continue;
-      }
-      println!("     Mint: {}", bank_account.bank.mint);
-      println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(asset_shares).unwrap()).unwrap());
-    }
-    println!("  Borrowed assets ({}$):", account.liability_value()?);
-    for bank_account in bank_accounts {
-      let liability_shares: I80F48 = bank_account.balance.liability_shares.into();
-      if liability_shares.is_zero() {
-        continue;
-      }
-      println!("     Mint: {}", bank_account.bank.mint);
-      println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(liability_shares).unwrap()).unwrap());
-    }
+    let liability_value = account.liability_value()?;
     let maint = account.maintenance()?;
-    println!("  Maintenance: {}$ ({}%)", maint, maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1)).checked_mul_int(100).unwrap());
-
-    anyhow::Ok(())
+    let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
+    
+    anyhow::Ok(maint_percentage < 0.2)
   }
 }
 
