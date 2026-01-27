@@ -37,22 +37,46 @@ use crate::marginfi::types::MarginfiAccount;
 
 const ACCOUNTS_BATCH: usize = 1000;
 
+#[derive(Debug, Clone)]
+pub struct AccountFilter {
+  pub min_asset_value: Option<I80F48>,
+  pub max_asset_value: Option<I80F48>,
+  pub min_maint_percentage: Option<I80F48>,
+  pub max_maint_percentage: Option<I80F48>,
+  pub min_maint: Option<I80F48>,
+  pub max_maint: Option<I80F48>,
+}
+
+impl Default for AccountFilter {
+  fn default() -> Self {
+    Self {
+      min_asset_value: None,
+      max_asset_value: None,
+      min_maint_percentage: None,
+      max_maint_percentage: None,
+      min_maint: None,
+      max_maint: None,
+    }
+  }
+}
+
 pub struct Marginfi {
   pubsub: PubsubClient,
   rpc_client: RpcClient,
   client: Client<Rc<Keypair>>,
-  program: Program<Rc<Keypair>>
+  program: Program<Rc<Keypair>>,
+  filter: AccountFilter
 }
 
 impl Marginfi {
-  pub async fn new(http_url: String, ws_url: String) -> anyhow::Result<Self> {
+  pub async fn new(http_url: String, ws_url: String, account_filter: Option<AccountFilter>) -> anyhow::Result<Self> {
     let pubsub = PubsubClient::new(&ws_url).await?;
     let payer = Rc::new(Keypair::new());
     let client = Client::new(Cluster::Custom(http_url, ws_url), payer);
     let program = client.program(MARGINFI_PROGRAM_ID)?;
     let rpc_client = program.rpc();
 
-    anyhow::Ok(Self { pubsub, rpc_client, client, program })
+    anyhow::Ok(Self { pubsub, rpc_client, client, program, filter: account_filter.unwrap_or_default() })
   }
 
   pub async fn look_for_targets(&self) -> anyhow::Result<()> {
@@ -220,6 +244,10 @@ impl Marginfi {
     anyhow::Ok(())
   }
 
+  // Seized <= Repaid * (1 + max_fee)
+  // Where Seized is the equity value withdrawn, in Repaidistheequityvaluerepaid, in,
+  // and max fee is the maximum allowed profit currently configured at 10%.
+  // Note that equity value is the price of the token without any weights applied, but inclusive of oracle confidence interval adjustments.
   fn check_account(&self, account: &MarginfiUserAccount) -> anyhow::Result<bool> {
     let bank_accounts = account.bank_accounts();
     let asset_value = account.asset_value()?;
@@ -227,7 +255,43 @@ impl Marginfi {
     let maint = account.maintenance()?;
     let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
     
-    anyhow::Ok(maint_percentage < 0.2)
+    if let Some(min) = self.filter.min_asset_value {
+      if asset_value < min {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(max) = self.filter.max_asset_value {
+      if asset_value > max {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(min) = self.filter.min_maint_percentage {
+      if maint_percentage < min {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(max) = self.filter.max_maint_percentage {
+      if maint_percentage >= max {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(min) = self.filter.min_maint {
+      if maint < min {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(max) = self.filter.max_maint {
+      if maint > max {
+        return Ok(false);
+      }
+    }
+    
+    Ok(true)
   }
 }
 
