@@ -183,6 +183,34 @@ impl Marginfi {
       };
 
       if result {
+        let account = marginfi_account.account();
+        let bank_accounts = marginfi_account.bank_accounts();
+        let asset_value = marginfi_account.asset_value()?;
+        let liability_value = marginfi_account.liability_value()?;
+        let maint = marginfi_account.maintenance()?;
+        let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
+        
+        println!("ACCOUNT: {}", account.authority);
+        println!("  Lended assets ({}$):", asset_value);
+        for bank_account in bank_accounts {
+          let asset_shares: I80F48 = bank_account.balance.asset_shares.into();
+          if asset_shares.is_zero() {
+            continue;
+          }
+          println!("     Mint: {}", bank_account.bank.mint);
+          println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(asset_shares).unwrap()).unwrap());
+        }
+        println!("  Borrowed assets ({}$):", marginfi_account.liability_value()?);
+        for bank_account in bank_accounts {
+          let liability_shares: I80F48 = bank_account.balance.liability_shares.into();
+          if liability_shares.is_zero() {
+            continue;
+          }
+          println!("     Mint: {}", bank_account.bank.mint);
+          println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(liability_shares).unwrap()).unwrap());
+        }
+        println!("  Maintenance: {}$ ({}%)", maint, maint_percentage.checked_mul_int(100).unwrap_or(I80F48::ZERO));
+
         hits.push(marginfi_account);
       }
     }
@@ -193,7 +221,6 @@ impl Marginfi {
   }
 
   fn check_account(&self, account: &MarginfiUserAccount) -> anyhow::Result<bool> {
-    let marginfi_account = account.account();
     let bank_accounts = account.bank_accounts();
     let asset_value = account.asset_value()?;
     let liability_value = account.liability_value()?;
