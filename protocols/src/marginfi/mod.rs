@@ -30,24 +30,24 @@ use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
 use anchor_client::solana_sdk::signature::Keypair;
 use futures_util::stream::StreamExt;
-use tokio::time::Instant;
+use std::time::Instant;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 use crate::marginfi::types::MarginfiAccount;
 
 const ACCOUNTS_BATCH: usize = 1000;
 
-#[derive(Debug, Clone)]
-pub struct AccountFilter {
-  pub min_asset_value: Option<I80F48>,
-  pub max_asset_value: Option<I80F48>,
-  pub min_maint_percentage: Option<I80F48>,
-  pub max_maint_percentage: Option<I80F48>,
-  pub min_maint: Option<I80F48>,
-  pub max_maint: Option<I80F48>,
+#[derive(Debug)]
+pub struct AccountFilter<T> {
+  pub min_asset_value: Option<T>,
+  pub max_asset_value: Option<T>,
+  pub min_maint_percentage: Option<T>,
+  pub max_maint_percentage: Option<T>,
+  pub min_maint: Option<T>,
+  pub max_maint: Option<T>,
 }
 
-impl Default for AccountFilter {
+impl<T> Default for AccountFilter<T> {
   fn default() -> Self {
     Self {
       min_asset_value: None,
@@ -60,16 +60,16 @@ impl Default for AccountFilter {
   }
 }
 
-pub struct Marginfi {
+pub struct Marginfi<T: PartialOrd> where I80F48: PartialOrd<T> {
   pubsub: PubsubClient,
   rpc_client: RpcClient,
   client: Client<Rc<Keypair>>,
   program: Program<Rc<Keypair>>,
-  filter: AccountFilter
+  filter: AccountFilter<T>
 }
 
-impl Marginfi {
-  pub async fn new(http_url: String, ws_url: String, account_filter: Option<AccountFilter>) -> anyhow::Result<Self> {
+impl<T: PartialOrd> Marginfi<T> where I80F48: PartialOrd<T> {
+  pub async fn new(http_url: String, ws_url: String, account_filter: Option<AccountFilter<T>>) -> anyhow::Result<Self> {
     let pubsub = PubsubClient::new(&ws_url).await?;
     let payer = Rc::new(Keypair::new());
     let client = Client::new(Cluster::Custom(http_url, ws_url), payer);
@@ -255,41 +255,35 @@ impl Marginfi {
     let maint = account.maintenance()?;
     let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
     
-    if let Some(min) = self.filter.min_asset_value {
-      if asset_value < min {
+    if let Some(ref min) = self.filter.min_asset_value
+      && &asset_value < min {
         return Ok(false);
       }
-    }
     
-    if let Some(max) = self.filter.max_asset_value {
-      if asset_value > max {
+    if let Some(ref max) = self.filter.max_asset_value
+      && &asset_value > max {
         return Ok(false);
       }
-    }
+
+    if let Some(ref min) = self.filter.min_maint_percentage
+      && &maint_percentage < min {
+        return Ok(false);
+      }
+
+    if let Some(ref max) = self.filter.max_maint_percentage
+      && &maint_percentage >= max {
+        return Ok(false);
+      }
     
-    if let Some(min) = self.filter.min_maint_percentage {
-      if maint_percentage < min {
+    if let Some(ref min) = self.filter.min_maint
+      && &maint < min {
         return Ok(false);
       }
-    }
     
-    if let Some(max) = self.filter.max_maint_percentage {
-      if maint_percentage >= max {
+    if let Some(ref max) = self.filter.max_maint
+      && &maint > max {
         return Ok(false);
       }
-    }
-    
-    if let Some(min) = self.filter.min_maint {
-      if maint < min {
-        return Ok(false);
-      }
-    }
-    
-    if let Some(max) = self.filter.max_maint {
-      if maint > max {
-        return Ok(false);
-      }
-    }
     
     Ok(true)
   }

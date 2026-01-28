@@ -1,0 +1,30 @@
+[package]
+name = "protocols"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+anchor-client = { version = "0.32.1", features = ["async"] }
+anchor-lang = "0.32.1"
+tokio-stream = "0.1.17"
+base64 = "0.22.1"
+bytemuck = "1.22.0"
+static_assertions = "1.1.0"
+fixed = "=1.28.0"
+fixed-macro = "1.2.0"
+solana-rpc-client = "^2"
+solana-pubsub-client = "^2"
+solana-rpc-client-types = "^2"
+solana-transaction-status-client-types = "^2"
+solana-account-decoder = "^2"
+solana-account = "^2"
+pyth-solana-receiver-sdk = "1.1.0"
+switchboard-on-demand = "0.11.3"
+anchor-spl = "0.32.1"
+enum_dispatch = "0.3.13"
+bincode = "1.3"
+futures-util = "0.3.31"
+
+[dev-dependencies]
+pretty_assertions = "1.2.1"
