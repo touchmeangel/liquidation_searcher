@@ -3377,20 +3377,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a50f4cf475b65d88e057964e0e9bb1f0aa9bbb2036dc65c64596b42932536984"
 
 [[package]]
-name = "scanner"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dotenvy",
- "fixed",
- "protocols",
- "serde",
- "serde_json",
- "solana-pubkey 2.4.0",
- "tokio",
-]
-
-[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3411,6 +3397,20 @@ name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
+
+[[package]]
+name = "searcher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dotenvy",
+ "fixed",
+ "protocols",
+ "serde",
+ "serde_json",
+ "solana-pubkey 2.4.0",
+ "tokio",
+]
 
 [[package]]
 name = "sec1"
