@@ -5,21 +5,3 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-
-#  => ERROR [searcher builder 7/7] RUN cargo build --release --package searcher                                                                                     0.6s 
-# ------
-#  > [searcher builder 7/7] RUN cargo build --release --package searcher:
-# 0.469 error: failed to load manifest for workspace member `/app/protocols`
-# 0.469 referenced by workspace at `/app/Cargo.toml`
-# 0.469
-# 0.469 Caused by:
-# 0.469   failed to parse manifest at `/app/protocols/Cargo.toml`
-# 0.469
-# 0.469 Caused by:
-# 0.469   feature `edition2024` is required
-# 0.469
-# 0.469   The package requires the Cargo feature called `edition2024`, but that feature is not stabilized in this version of Cargo (1.83.0 (5ffbef321 2024-10-29)).      
-# 0.469   Consider trying a newer version of Cargo (this may require the nightly release).
-# 0.469   See https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#edition-2024 for more information about the status of this feature.
-# ------
-# failed to solve: process "/bin/sh -c cargo build --release --package searcher" did not complete successfully: exit code: 101
