@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 COPY searcher ./searcher
+COPY connections ./connections
 COPY protocols ./protocols
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse

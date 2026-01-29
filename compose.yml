@@ -7,6 +7,8 @@ services:
       - HTTP_URL=${HTTP_URL}
       - WS_URL=${WS_URL}
       - REDIS_CONNECTION=redis://:${ACCOUNTS_REDIS_PASSWORD}@accounts:6379
+    depends_on:
+      - accounts
   
   accounts:
     image: redis:latest
