@@ -36,35 +36,41 @@ impl<T> AccountFilter<T> where I80F48: PartialOrd<T> {
     let maint = user.maintenance()?;
     let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
     
-    if let Some(ref min) = self.min_asset_value
-      && &asset_value < min {
+    if let Some(ref min) = self.min_asset_value {
+      if &asset_value < min {
         return Ok(false);
       }
+    }
     
-    if let Some(ref max) = self.max_asset_value
-      && &asset_value > max {
+    if let Some(ref max) = self.max_asset_value {
+      if &asset_value > max {
         return Ok(false);
       }
+    }
 
-    if let Some(ref min) = self.min_maint_percentage
-      && &maint_percentage < min {
+    if let Some(ref min) = self.min_maint_percentage {
+      if &maint_percentage < min {
         return Ok(false);
       }
+    }
 
-    if let Some(ref max) = self.max_maint_percentage
-      && &maint_percentage >= max {
+    if let Some(ref max) = self.max_maint_percentage {
+      if &maint_percentage >= max {
         return Ok(false);
       }
+    }
     
-    if let Some(ref min) = self.min_maint
-      && &maint < min {
+    if let Some(ref min) = self.min_maint {
+      if &maint < min {
         return Ok(false);
       }
+    }
     
-    if let Some(ref max) = self.max_maint
-      && &maint > max {
+    if let Some(ref max) = self.max_maint {
+      if &maint > max {
         return Ok(false);
       }
+    }
     
     Ok(true)
   }    
