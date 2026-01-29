@@ -1,18 +1,18 @@
 use anyhow::Context;
 use fixed::types::I80F48;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use anchor_lang::prelude::Pubkey;
+use solana_pubkey::Pubkey;
 
 use crate::{marginfi::types::{Balance, BalanceSide, Bank, EmodeConfig, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}, utils::parse_account};
 
 #[derive(Clone)]
-pub struct MarginfiUserAccount {
+pub struct MarginfiUser {
   account: MarginfiAccount,
   bank_accounts: Vec<BankAccount>,
   emode_config: EmodeConfig
 }
 
-impl MarginfiUserAccount {
+impl MarginfiUser {
   pub async fn from_accounts(
     rpc_client: &RpcClient, 
     account_pubkeys: &[Pubkey],

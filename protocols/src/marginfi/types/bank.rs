@@ -4,7 +4,8 @@ use crate::{
 
 use bytemuck::{Pod, Zeroable};
 
-use anchor_lang::prelude::Pubkey;
+use solana_pubkey::Pubkey;
+
 use fixed::types::I80F48;
 
 use super::{BankCache, BankConfig, EmodeSettings};

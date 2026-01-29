@@ -1,6 +1,6 @@
 use fixed::types::I80F48;
 use fixed_macro::types::I80F48;
-use anchor_lang::prelude::*;
+use solana_pubkey::{Pubkey, pubkey};
 use pyth_solana_receiver_sdk::price_update::VerificationLevel;
 
 pub const MAX_LENDING_ACCOUNT_BALANCES: usize = 16;

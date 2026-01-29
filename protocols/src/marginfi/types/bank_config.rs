@@ -2,7 +2,7 @@ use crate::{
   assert_struct_align, assert_struct_size,
 };
 
-use anchor_lang::prelude::Pubkey;
+use solana_pubkey::Pubkey;
 
 use bytemuck::{Pod, Zeroable};
 use fixed::types::I80F48;
