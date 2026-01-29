@@ -24,7 +24,7 @@ async fn main() {
       min_maint: None,
       max_maint: None
     };
-    let marginfi = Marginfi::new(config.url, config.ws_url).await?;
+    let marginfi = Marginfi::new(config.http_url, config.ws_url).await?;
 
     let start = Instant::now();
     let mut accounts = marginfi.get_all_accounts().await?;

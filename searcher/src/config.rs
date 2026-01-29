@@ -2,7 +2,7 @@ use anyhow::Context;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Config {
-  pub(crate) url: String,
+  pub(crate) http_url: String,
   pub(crate) ws_url: String,
 }
 
@@ -12,7 +12,7 @@ impl Config {
     let url = std::env::var("RPC_URL").context("\"RPC_URL\" is required")?;
     let ws_url = std::env::var("WS_URL").context("\"WS_URL\" is required")?;
     let config = Config {
-      url,
+      http_url: url,
       ws_url,
     };
 
