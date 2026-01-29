@@ -1,7 +1,8 @@
 services:
   searcher:
     build:
-      dockerfile: Dockerfile
+      dockerfile: searcher/Dockerfile
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      - RPC_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
