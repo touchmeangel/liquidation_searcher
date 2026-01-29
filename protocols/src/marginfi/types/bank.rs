@@ -147,6 +147,22 @@ impl Bank {
   }
 }
 
+#[repr(transparent)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
+pub struct RawRiskTier(pub u8);
+
+impl RawRiskTier {
+  pub fn validate(&self) -> Result<RiskTier, String> {
+      match self.0 {
+          0 => Ok(RiskTier::Collateral),
+          1 => Ok(RiskTier::Isolated),
+          _ => Err(format!("Invalid RiskTier: {}", self.0)),
+      }
+  }
+}
+unsafe impl Zeroable for RawRiskTier {}
+unsafe impl Pod for RawRiskTier {}
+
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
 pub enum RiskTier {
@@ -160,8 +176,24 @@ pub enum RiskTier {
   /// they can't borrow XYZ together with SOL, only XYZ alone.
   Isolated = 1,
 }
-unsafe impl Zeroable for RiskTier {}
-unsafe impl Pod for RiskTier {}
+
+#[repr(transparent)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct RawBankOperationalState(pub u8);
+
+impl RawBankOperationalState {
+  pub fn validate(&self) -> Result<BankOperationalState, String> {
+      match self.0 {
+          0 => Ok(BankOperationalState::Paused),
+          1 => Ok(BankOperationalState::Operational),
+          2 => Ok(BankOperationalState::ReduceOnly),
+          3 => Ok(BankOperationalState::KilledByBankruptcy),
+          _ => Err(format!("Invalid BankOperationalState: {}", self.0)),
+      }
+  }
+}
+unsafe impl Zeroable for RawBankOperationalState {}
+unsafe impl Pod for RawBankOperationalState {}
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -171,8 +203,33 @@ pub enum BankOperationalState {
   ReduceOnly,
   KilledByBankruptcy,
 }
-unsafe impl Zeroable for BankOperationalState {}
-unsafe impl Pod for BankOperationalState {}
+
+#[repr(transparent)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
+pub struct RawOracleSetup(pub u8);
+
+impl RawOracleSetup {
+    pub fn validate(&self) -> Result<OracleSetup, String> {
+        match self.0 {
+            0 => Ok(OracleSetup::None),
+            1 => Ok(OracleSetup::PythLegacy),
+            2 => Ok(OracleSetup::SwitchboardV2),
+            3 => Ok(OracleSetup::PythPushOracle),
+            4 => Ok(OracleSetup::SwitchboardPull),
+            5 => Ok(OracleSetup::StakedWithPythPush),
+            6 => Ok(OracleSetup::KaminoPythPush),
+            7 => Ok(OracleSetup::KaminoSwitchboardPull),
+            8 => Ok(OracleSetup::Fixed),
+            9 => Ok(OracleSetup::DriftPythPull),
+            10 => Ok(OracleSetup::DriftSwitchboardPull),
+            11 => Ok(OracleSetup::SolendPythPull),
+            12 => Ok(OracleSetup::SolendSwitchboardPull),
+            _ => Err(format!("Invalid OracleSetup: {}", self.0)),
+        }
+    }
+}
+unsafe impl Zeroable for RawOracleSetup {}
+unsafe impl Pod for RawOracleSetup {}
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -186,23 +243,31 @@ pub enum OracleSetup {
   KaminoPythPush,
   KaminoSwitchboardPull,
   Fixed,
+  DriftPythPull,
+  DriftSwitchboardPull,
+  SolendPythPull,
+  SolendSwitchboardPull,
 }
 unsafe impl Zeroable for OracleSetup {}
 unsafe impl Pod for OracleSetup {}
 
 impl OracleSetup {
-  pub fn from_u8(value: u8) -> Option<Self> {
-      match value {
-          0 => Some(Self::None),
-          1 => Some(Self::PythLegacy),    // Deprecated
-          2 => Some(Self::SwitchboardV2), // Deprecated
-          3 => Some(Self::PythPushOracle),
-          4 => Some(Self::SwitchboardPull),
-          5 => Some(Self::StakedWithPythPush),
-          6 => Some(Self::KaminoPythPush),
-          7 => Some(Self::KaminoSwitchboardPull),
-          8 => Some(Self::Fixed),
-          _ => None,
-      }
-  }
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::None),
+            1 => Some(Self::PythLegacy),    // Deprecated
+            2 => Some(Self::SwitchboardV2), // Deprecated
+            3 => Some(Self::PythPushOracle),
+            4 => Some(Self::SwitchboardPull),
+            5 => Some(Self::StakedWithPythPush),
+            6 => Some(Self::KaminoPythPush),
+            7 => Some(Self::KaminoSwitchboardPull),
+            8 => Some(Self::Fixed),
+            9 => Some(Self::DriftPythPull),
+            10 => Some(Self::DriftSwitchboardPull),
+            11 => Some(Self::SolendPythPull),
+            12 => Some(Self::SolendSwitchboardPull),
+            _ => None,
+        }
+    }
 }

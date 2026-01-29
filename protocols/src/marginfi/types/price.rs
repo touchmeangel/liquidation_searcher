@@ -7,6 +7,7 @@ use anchor_lang::prelude::*;
 use anchor_client::solana_sdk::{borsh::try_from_slice_unchecked, stake::state::StakeStateV2};
 use solana_account::Account;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+use crate::marginfi::types::{MinimalSpotMarket, SolendMinimalReserve};
 use crate::utils::parse_account;
 use crate::{check, check_eq, debug, live, math_error};
 use super::super::prelude::*;
@@ -114,6 +115,22 @@ pub enum OracleAccounts {
     oracle: solana_account::Account,
     reserve: solana_account::Account,
   },
+  DriftPythPull {
+    price: solana_account::Account,
+    spot_market: solana_account::Account,
+  },
+  DriftSwitchboardPull {
+    oracle: solana_account::Account,
+    spot_market: solana_account::Account
+  },
+  SolendPythPull {
+    price: solana_account::Account,
+    reserve: solana_account::Account,
+  },
+  SolendSwitchboardPull {
+    oracle: solana_account::Account,
+    reserve: solana_account::Account,
+  }
 }
 
 pub struct OraclePriceFeedAdapterConfig<'info> {
@@ -178,6 +195,7 @@ impl<'info> OraclePriceFeedAdapterConfig<'info> {
       bank_oracle_mappings.push(bank_indices);
     }
 
+
     let oracle_accounts = if unique_oracle_keys.is_empty() {
       Vec::new()
     } else {
@@ -233,7 +251,7 @@ impl<'info> OraclePriceFeedAdapterConfig<'info> {
 }
 
 fn get_oracle_keys_for_bank(bank: &Bank) -> anyhow::Result<Vec<Pubkey>> {
-  match bank.config.oracle_setup {
+  match bank.config.oracle_setup.validate().map_err(|err| anyhow::anyhow!(err))? {
     OracleSetup::None => {
       Err(anyhow::anyhow!(MarginfiError::OracleNotSetup))
     }
@@ -241,22 +259,53 @@ fn get_oracle_keys_for_bank(bank: &Bank) -> anyhow::Result<Vec<Pubkey>> {
       Err(anyhow::anyhow!(ErrorCode::Deprecated))
     }
     OracleSetup::PythPushOracle | OracleSetup::SwitchboardPull => {
-      Ok(vec![bank.config.oracle_keys[0]])
+      Ok(vec![*bank.config.oracle_keys.first()
+        .ok_or_else(|| anyhow::anyhow!("Missing oracle key"))?])
     }
     OracleSetup::StakedWithPythPush => {
+      if bank.config.oracle_keys.len() < 3 {
+        return Err(anyhow::anyhow!("Expected 3 oracle keys, found {}", bank.config.oracle_keys.len()));
+      }
       Ok(bank.config.oracle_keys[0..3].to_vec())
     }
     OracleSetup::KaminoPythPush | OracleSetup::KaminoSwitchboardPull => {
+      if bank.config.oracle_keys.len() < 2 {
+        return Err(anyhow::anyhow!("Expected 2 oracle keys, found {}", bank.config.oracle_keys.len()));
+      }
       Ok(bank.config.oracle_keys[0..2].to_vec())
     }
+    OracleSetup::DriftPythPull => {
+      if bank.config.oracle_keys.len() < 2 {
+        return Err(anyhow::anyhow!("Expected 2 oracle keys, found {}", bank.config.oracle_keys.len()));
+      }
+      Ok(bank.config.oracle_keys[0..2].to_vec())
+    },
+    OracleSetup::DriftSwitchboardPull => {
+      if bank.config.oracle_keys.len() < 2 {
+        return Err(anyhow::anyhow!("Expected 2 oracle keys, found {}", bank.config.oracle_keys.len()));
+      }
+      Ok(bank.config.oracle_keys[0..2].to_vec())
+    },
+    OracleSetup::SolendPythPull => {
+      if bank.config.oracle_keys.len() < 2 {
+        return Err(anyhow::anyhow!("Expected 2 oracle keys, found {}", bank.config.oracle_keys.len()));
+      }
+      Ok(bank.config.oracle_keys[0..2].to_vec())
+    },
+    OracleSetup::SolendSwitchboardPull => {
+      if bank.config.oracle_keys.len() < 2 {
+        return Err(anyhow::anyhow!("Expected 2 oracle keys, found {}", bank.config.oracle_keys.len()));
+      }
+      Ok(bank.config.oracle_keys[0..2].to_vec())
+    },
     OracleSetup::Fixed => {
       Ok(vec![])
     }
-  }
+    }
 }
 
 fn build_oracle_accounts(bank: &Bank, accounts: Vec<Account>) -> anyhow::Result<OracleAccounts> {
-  match bank.config.oracle_setup {
+  match bank.config.oracle_setup.validate().map_err(|err| anyhow::anyhow!(err))? {
     OracleSetup::None => {
       Err(anyhow::anyhow!(MarginfiError::OracleNotSetup))
     }
@@ -293,8 +342,18 @@ fn build_oracle_accounts(bank: &Bank, accounts: Vec<Account>) -> anyhow::Result<
         reserve: accounts[1].clone(),
       })
     }
+    OracleSetup::DriftPythPull => Ok(OracleAccounts::DriftPythPull {
+      price: accounts[0].clone(),
+      spot_market: accounts[1].clone()
+    }),
+    OracleSetup::DriftSwitchboardPull => Ok(OracleAccounts::DriftSwitchboardPull {
+      oracle: accounts[0].clone(),
+      spot_market: accounts[1].clone()
+    }),
+    OracleSetup::SolendPythPull => Ok(OracleAccounts::SolendPythPull { price: accounts[0].clone(), reserve: accounts[1].clone() }),
+    OracleSetup::SolendSwitchboardPull => Ok(OracleAccounts::SolendSwitchboardPull { oracle: accounts[0].clone(), reserve: accounts[1].clone() }),
     OracleSetup::Fixed => Ok(OracleAccounts::None),
-  }
+    }
 }
 
 #[enum_dispatch(PriceAdapter)]
@@ -308,24 +367,24 @@ pub enum OraclePriceFeedAdapter {
 impl OraclePriceFeedAdapter {
   pub fn try_from_config<'info>(config: OraclePriceFeedAdapterConfig<'info>) -> MarginfiResult<Self> {
       match config.accounts {
-          OracleAccounts::None => {
+        OracleAccounts::None => {
               let price: I80F48 = config.bank.config.fixed_price.into();
               if price < I80F48::ZERO {
                   return Err(MarginfiError::FixedOraclePriceNegative.into());
               }
               Ok(OraclePriceFeedAdapter::Fixed(FixedPriceFeed { price }))
           }
-          OracleAccounts::PythPush { price } => {
+        OracleAccounts::PythPush { price } => {
               let feed = PythPushOraclePriceFeed::load_checked(&price, &config.clock, config.max_age)?;
               Ok(OraclePriceFeedAdapter::PythPushOracle(feed))
           }
-          OracleAccounts::SwitchboardPull { oracle } => {
+        OracleAccounts::SwitchboardPull { oracle } => {
               let feed = SwitchboardPullPriceFeed::load_checked(
                 &oracle, config.clock.unix_timestamp, config.max_age
               )?;
               Ok(OraclePriceFeedAdapter::SwitchboardPull(feed))
           }
-          OracleAccounts::StakedWithPythPush { price, lst_mint, stake_state } => {
+        OracleAccounts::StakedWithPythPush { price, lst_mint, stake_state } => {
               // Deserialize stake state and compute adjusted price
               let stake_state = try_from_slice_unchecked::<StakeStateV2>(&stake_state.data)?;
               let (_, stake) = match stake_state {
@@ -356,7 +415,7 @@ impl OraclePriceFeedAdapter {
 
               Ok(OraclePriceFeedAdapter::PythPushOracle(feed))
           }
-          OracleAccounts::KaminoPythPush { price, reserve } => {
+        OracleAccounts::KaminoPythPush { price, reserve } => {
               let mut price_feed = PythPushOraclePriceFeed::load_checked(&price, &config.clock, config.max_age)?;
               let (total_liq, total_col) = parse_account::<MinimalReserve>(&reserve.data)
                   .map_err(|_| ErrorCode::AccountDidNotDeserialize)?
@@ -370,7 +429,7 @@ impl OraclePriceFeedAdapter {
               }
               Ok(OraclePriceFeedAdapter::PythPushOracle(price_feed))
           }
-          OracleAccounts::KaminoSwitchboardPull { oracle, reserve } => {
+        OracleAccounts::KaminoSwitchboardPull { oracle, reserve } => {
               let mut price_feed =
                   SwitchboardPullPriceFeed::load_checked(&oracle, config.clock.unix_timestamp, config.max_age)?;
               let (total_liq, total_col) = parse_account::<MinimalReserve>(&reserve.data)
@@ -382,6 +441,60 @@ impl OraclePriceFeedAdapter {
                       adjust_i128(price_feed.feed.result.value, ratio)?;
                   price_feed.feed.result.std_dev =
                       adjust_i128(price_feed.feed.result.std_dev, ratio)?;
+              }
+              Ok(OraclePriceFeedAdapter::SwitchboardPull(price_feed))
+          }
+        OracleAccounts::DriftPythPull { price, spot_market } => {
+              let mut price_feed = PythPushOraclePriceFeed::load_checked(&price, &config.clock, config.max_age)?;
+              let spot_market_data = parse_account::<MinimalSpotMarket>(&spot_market.data)
+                  .map_err(|_| ErrorCode::AccountDidNotDeserialize)?;
+
+              price_feed.price.price = spot_market_data.adjust_i64(price_feed.price.price)?;
+              price_feed.ema_price.price = spot_market_data.adjust_i64(price_feed.ema_price.price)?;
+              price_feed.price.conf = spot_market_data.adjust_u64(price_feed.price.conf)?;
+              price_feed.ema_price.conf = spot_market_data.adjust_u64(price_feed.ema_price.conf)?;
+
+              Ok(OraclePriceFeedAdapter::PythPushOracle(price_feed))
+          }
+        OracleAccounts::DriftSwitchboardPull { oracle, spot_market } => {
+              let mut price_feed = SwitchboardPullPriceFeed::load_checked(
+                  &oracle, config.clock.unix_timestamp, config.max_age
+              )?;
+              let spot_market_data = parse_account::<MinimalSpotMarket>(&spot_market.data)
+                  .map_err(|_| ErrorCode::AccountDidNotDeserialize)?;
+              
+              price_feed.feed.result.value = spot_market_data.adjust_i128(price_feed.feed.result.value)?;
+              price_feed.feed.result.std_dev = spot_market_data.adjust_i128(price_feed.feed.result.std_dev)?;
+
+              Ok(OraclePriceFeedAdapter::SwitchboardPull(price_feed))
+          }
+        OracleAccounts::SolendPythPull { price, reserve } => {
+              let mut price_feed = PythPushOraclePriceFeed::load_checked(&price, &config.clock, config.max_age)?;
+              let (total_liq, total_col) = parse_account::<SolendMinimalReserve>(&reserve.data)
+                  .map_err(|_| ErrorCode::AccountDidNotDeserialize)?
+                  .scaled_supplies()?;
+              
+              if total_col > I80F48::ZERO {
+                  let ratio = total_liq / total_col;
+                  price_feed.price.price = adjust_i64(price_feed.price.price, ratio)?;
+                  price_feed.ema_price.price = adjust_i64(price_feed.ema_price.price, ratio)?;
+                  price_feed.price.conf = adjust_u64(price_feed.price.conf, ratio)?;
+                  price_feed.ema_price.conf = adjust_u64(price_feed.ema_price.conf, ratio)?;
+              }
+              Ok(OraclePriceFeedAdapter::PythPushOracle(price_feed))
+          }
+        OracleAccounts::SolendSwitchboardPull { oracle, reserve } => {
+              let mut price_feed = SwitchboardPullPriceFeed::load_checked(
+                  &oracle, config.clock.unix_timestamp, config.max_age
+              )?;
+              let (total_liq, total_col) = parse_account::<SolendMinimalReserve>(&reserve.data)
+                  .map_err(|_| ErrorCode::AccountDidNotDeserialize)?
+                  .scaled_supplies()?;
+              
+              if total_col > I80F48::ZERO {
+                  let ratio = total_liq / total_col;
+                  price_feed.feed.result.value = adjust_i128(price_feed.feed.result.value, ratio)?;
+                  price_feed.feed.result.std_dev = adjust_i128(price_feed.feed.result.std_dev, ratio)?;
               }
               Ok(OraclePriceFeedAdapter::SwitchboardPull(price_feed))
           }

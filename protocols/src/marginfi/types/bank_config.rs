@@ -1,3 +1,4 @@
+use crate::marginfi::types::{RawBankOperationalState, RawOracleSetup, RawRiskTier};
 use crate::{
   assert_struct_align, assert_struct_size,
 };
@@ -23,7 +24,6 @@ assert_struct_align!(BankConfig, 8);
 #[repr(C)]
 #[derive(Debug, PartialEq, Pod, Zeroable, Copy, Clone, Eq)]
 pub struct BankConfig {
-  /// TODO: Convert weights to (u64, u64) to avoid precision loss (maybe?)
   pub asset_weight_init: WrappedI80F48,
   pub asset_weight_maint: WrappedI80F48,
 
@@ -33,9 +33,9 @@ pub struct BankConfig {
   pub deposit_limit: u64,
 
   pub interest_rate_config: InterestRateConfig,
-  pub operational_state: BankOperationalState,
+  pub operational_state: RawBankOperationalState,
 
-  pub oracle_setup: OracleSetup,
+  pub oracle_setup: RawOracleSetup,
   pub oracle_keys: [Pubkey; MAX_ORACLE_KEYS],
 
   // Note: Pubkey is aligned 1, so borrow_limit is the first aligned-8 value after deposit_limit
@@ -43,33 +43,35 @@ pub struct BankConfig {
 
   pub borrow_limit: u64,
 
-  pub risk_tier: RiskTier,
+  pub risk_tier: RawRiskTier,
 
-  /// Determines what kinds of assets users of this bank can interact with.
-  /// Options:
-  /// * ASSET_TAG_DEFAULT (0) - A regular asset that can be comingled with any other regular asset
-  ///   or with `ASSET_TAG_SOL`
-  /// * ASSET_TAG_SOL (1) - Accounts with a SOL position can comingle with **either**
+  /// Determines what kinds of assets users of this bank can interact with. Options:
+  /// * `ASSET_TAG_DEFAULT` (0) - A regular asset that can be comingled with any other regular
+  ///   asset or with `ASSET_TAG_SOL`
+  /// * `ASSET_TAG_SOL` (1) - Accounts with a SOL position can comingle with **either**
   /// `ASSET_TAG_DEFAULT` or `ASSET_TAG_STAKED` positions, but not both
-  /// * ASSET_TAG_STAKED (2) - Staked SOL assets. Accounts with a STAKED position can only deposit
-  /// other STAKED assets or SOL (`ASSET_TAG_SOL`) and can only borrow SOL
+  /// * `ASSET_TAG_STAKED` (2) - Staked SOL assets. Accounts with a STAKED position can only
+  /// deposit other STAKED assets or SOL (`ASSET_TAG_SOL`) and can only borrow SOL
+  /// * `ASSET_TAG_KAMINO` (3) - Treated the same as `ASSET_TAG_DEFAULT`
+  /// * `ASSET_TAG_DRIFT` (4) - Treated the same as `ASSET_TAG_DEFAULT`
+  /// * `ASSET_TAG_SOLEND` (5) - Treated the same as `ASSET_TAG_DEFAULT`
   pub asset_tag: u8,
 
   /// Flags for various config options
-  /// * 1 - Always set if bank created in 0.1.4 or later, or if migrated to the new pyth
-  ///   oracle setup from a prior version. Not set in 0.1.3 or earlier banks using pyth that have
-  ///   not yet migrated. Does nothing for banks that use switchboard.
+  /// * 1 - Always set if bank created in 0.1.4 or later, or if migrated to the new pyth oracle
+  ///   setup from a prior version. Not set in 0.1.3 or earlier banks using pyth that have not yet
+  ///   migrated. Does nothing for banks that use switchboard.
   /// * 2, 4, 8, 16, etc - reserved for future use.
   pub config_flags: u8,
 
   pub _pad1: [u8; 5],
 
   /// USD denominated limit for calculating asset value for initialization margin requirements.
-  /// Example, if total SOL deposits are equal to $1M and the limit it set to $500K,
-  /// then SOL assets will be discounted by 50%.
+  /// Example, if total SOL deposits are equal to $1M and the limit it set to $500K, then SOL
+  /// assets will be discounted by 50%.
   ///
-  /// In other words the max value of liabilities that can be backed by the asset is $500K.
-  /// This is useful for limiting the damage of orcale attacks.
+  /// In other words the max value of liabilities that can be backed by the asset is $500K. This
+  /// is useful for limiting the damage of orcale attacks.
   ///
   /// Value is UI USD value, for example value 100 -> $100
   pub total_asset_value_init_limit: u64,
@@ -95,9 +97,9 @@ pub struct BankConfig {
 impl BankConfig {
   #[inline]
   pub fn get_oracle_max_age(&self) -> u64 {
-      match (self.oracle_max_age, self.oracle_setup) {
-          (0, OracleSetup::PythPushOracle) => MAX_PYTH_ORACLE_AGE,
-          (n, _) => n as u64,
+      match self.oracle_max_age {
+          0 if self.oracle_setup == RawOracleSetup(OracleSetup::PythPushOracle as u8) => MAX_PYTH_ORACLE_AGE,
+          n => n as u64,
       }
   }
 }
@@ -112,11 +114,11 @@ impl Default for BankConfig {
           deposit_limit: 0,
           borrow_limit: 0,
           interest_rate_config: Default::default(),
-          operational_state: BankOperationalState::Paused,
-          oracle_setup: OracleSetup::None,
+          operational_state: RawBankOperationalState(BankOperationalState::Paused as u8),
+          oracle_setup: RawOracleSetup(OracleSetup::None as u8),
           oracle_keys: [Pubkey::default(); MAX_ORACLE_KEYS],
           _pad0: [0; 6],
-          risk_tier: RiskTier::Isolated,
+          risk_tier: RawRiskTier(RiskTier::Isolated as u8),
           asset_tag: ASSET_TAG_DEFAULT,
           config_flags: 0,
           _pad1: [0; 5],

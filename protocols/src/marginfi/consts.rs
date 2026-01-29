@@ -127,7 +127,7 @@ pub const EXP_10_I80F48: [I80F48; MAX_EXP_10_I80F48] = [
 ];
 
 pub const MAX_EXP_10: usize = 21;
-pub const EXP_10: [i128; MAX_EXP_10] = [
+pub const EXP_10: [u128; MAX_EXP_10] = [
     1,                     // 10^0
     10,                    // 10^1
     100,                   // 10^2
