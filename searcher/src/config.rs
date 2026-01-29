@@ -8,7 +8,7 @@ pub struct Config {
 
 impl Config {
   pub async fn open() -> anyhow::Result<Config> {
-    dotenvy::dotenv().context("failed to load .env file")?;
+    dotenvy::dotenv();
     let url = std::env::var("RPC_URL").context("\"RPC_URL\" is required")?;
     let ws_url = std::env::var("WS_URL").context("\"WS_URL\" is required")?;
     let config = Config {
