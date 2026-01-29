@@ -42,6 +42,7 @@ async fn main() {
     }
 
     for accounts_batch in batches {
+      let start = Instant::now();
       let items = match check_pubkeys(&marginfi, &accounts_batch, &filter).await {
         Ok(items) => items,
         Err(error) => {
@@ -49,6 +50,7 @@ async fn main() {
           continue;
         },
       };
+      let duration = start.elapsed();
       
       let len = items.len();
       if len == 0 {
@@ -64,7 +66,7 @@ async fn main() {
       };
 
       if result > 0 {
-        println!("* added {} accounts", result);
+        println!("* added {} accounts ({:?})", result, duration);
       }
     }
     
