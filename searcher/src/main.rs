@@ -51,10 +51,10 @@ async fn main() {
       };
       
       let len = items.len();
-      if len <= 0 {
+      if len == 0 {
         continue;
       }
-      
+
       let result = match redis.add(items).await {
         Ok(result) => result,
         Err(error) => {
