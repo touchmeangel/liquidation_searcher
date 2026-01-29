@@ -2,6 +2,7 @@ mod config;
 mod filter;
 
 use config::Config;
+use connections::Redis;
 use filter::AccountFilter;
 
 use fixed::types::I80F48;
@@ -15,6 +16,8 @@ const ACCOUNTS_BATCH: usize = 1000;
 async fn main() {
   let result: anyhow::Result<()> = async move {
     let config = Config::open().await?;
+
+    let mut redis = Redis::new(&config.redis_url).await?;
 
     let filter = AccountFilter {
       min_asset_value: Some(10.0),
@@ -39,8 +42,25 @@ async fn main() {
     }
 
     for accounts_batch in batches {
-      if let Err(error) = handle_pubkeys(&marginfi, &accounts_batch, &filter).await {
-        println!("Error fetching accounts: {}", error);
+      let items = match check_pubkeys(&marginfi, &accounts_batch, &filter).await {
+        Ok(items) => items,
+        Err(error) => {
+          println!("error fetching accounts: {}", error);
+          continue;
+        },
+      };
+      
+      let len = items.len();
+      let result = match redis.add(items).await {
+        Ok(result) => result,
+        Err(error) => {
+          println!("* error adding {} accounts: {}", len, error);
+          continue;
+        },
+      };
+
+      if result > 0 {
+        println!("* added {} accounts", result);
       }
     }
     
@@ -56,14 +76,12 @@ async fn main() {
   }
 }
 
-async fn handle_pubkeys<T>(protocol: &Marginfi, pubkeys: &[Pubkey], filter: &AccountFilter<T>) -> anyhow::Result<()>
+async fn check_pubkeys<'a, T>(protocol: &Marginfi, pubkeys: &'a [Pubkey], filter: &AccountFilter<T>) -> anyhow::Result<Vec<&'a Pubkey>>
   where I80F48: PartialOrd<T> {
-  let start = Instant::now();
   let users = protocol.load_users(pubkeys).await?;
-  let duration = start.elapsed();
   
   let mut hits = Vec::new();
-  for result in users {
+  for (result, pubkey) in users.into_iter().zip(pubkeys) {
     let user = match result {
       Ok(user) => user,
       Err(error) => {
@@ -81,39 +99,9 @@ async fn handle_pubkeys<T>(protocol: &Marginfi, pubkeys: &[Pubkey], filter: &Acc
     };
 
     if result {
-      let account = user.account();
-      let bank_accounts = user.bank_accounts();
-      let asset_value = user.asset_value()?;
-      let liability_value = user.liability_value()?;
-      let maint = user.maintenance()?;
-      let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
-      
-      println!("ACCOUNT: {}", account.authority);
-      println!("  Lended assets ({}$):", asset_value);
-      for bank_account in bank_accounts {
-        let asset_shares: I80F48 = bank_account.balance.asset_shares.into();
-        if asset_shares.is_zero() {
-          continue;
-        }
-        println!("     Mint: {}", bank_account.bank.mint);
-        println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(asset_shares).unwrap()).unwrap());
-      }
-      println!("  Borrowed assets ({}$):", user.liability_value()?);
-      for bank_account in bank_accounts {
-        let liability_shares: I80F48 = bank_account.balance.liability_shares.into();
-        if liability_shares.is_zero() {
-          continue;
-        }
-        println!("     Mint: {}", bank_account.bank.mint);
-        println!("     Balance: {}", bank_account.bank.get_display_asset(bank_account.bank.get_asset_amount(liability_shares).unwrap()).unwrap());
-      }
-      println!("  Maintenance: {}$ ({}%)", maint, maint_percentage.checked_mul_int(100).unwrap_or(I80F48::ZERO));
-
-      hits.push(user);
+      hits.push(pubkey);
     }
   }
 
-  println!("LOADED {} USERS, {} HITS ({:?})", pubkeys.len(), hits.len(), duration);
-
-  anyhow::Ok(())
+  anyhow::Ok(hits)
 }

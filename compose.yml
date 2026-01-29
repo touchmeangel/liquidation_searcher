@@ -4,5 +4,15 @@ services:
       dockerfile: searcher/Dockerfile
     restart: unless-stopped
     environment:
-      - RPC_URL=${HTTP_URL}
+      - HTTP_URL=${HTTP_URL}
       - WS_URL=${WS_URL}
+      - REDIS_CONNECTION=redis://:${ACCOUNTS_REDIS_PASSWORD}@accounts:6379
+  
+  accounts:
+    image: redis:latest
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${ACCOUNTS_REDIS_PASSWORD}
+      --save 60 1
+      --loglevel warning
