@@ -2,7 +2,7 @@
 members = ["connections",
   "protocols",
   "searcher"
-]
+, "worker"]
 
 resolver = "2"
 
