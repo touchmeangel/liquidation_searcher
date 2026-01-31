@@ -21,4 +21,15 @@ impl Redis {
     let result = self.con.sadd(KEY, &strings).await?;
     Ok(result)
   }
+
+  pub async fn get_all(&mut self) -> anyhow::Result<Vec<Pubkey>> {
+    let strings = self.con.smembers(KEY).await?;
+    
+    let pubkeys: Result<Vec<Pubkey>, _> = strings
+      .iter()
+      .map(|s| s.parse::<Pubkey>())
+      .collect();
+    
+    Ok(pubkeys?)
+  }
 }
