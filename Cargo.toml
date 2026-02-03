@@ -1,6 +1,6 @@
 [workspace]
 members = ["connections",
-  "protocols",
+  "protocols", "scheduler",
   "searcher"
 , "worker"]
 
