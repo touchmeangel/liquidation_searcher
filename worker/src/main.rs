@@ -21,6 +21,7 @@ async fn main() {
 
 async fn start(config: Config) -> anyhow::Result<()> {
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
+  println!("[{}] started listening", config.worker_id);
 
   loop {
     tokio::select! {
@@ -36,7 +37,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         subredis.ack(&messages).await?;
       }
       _ = signal::ctrl_c() => {
-        println!("shutting down worker {}...", config.worker_id);
+        println!("[{}] shutting down...", config.worker_id);
         break;
       }
     }
