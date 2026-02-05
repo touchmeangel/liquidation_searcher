@@ -1,4 +1,6 @@
-use redis::{AsyncTypedCommands, aio::ConnectionManager, streams::StreamReadOptions};
+use std::time::Duration;
+
+use redis::{AsyncTypedCommands, aio::{ConnectionManager, ConnectionManagerConfig}, streams::StreamReadOptions};
 use solana_pubkey::Pubkey;
 
 const STREAM_KEY: &str = "account_stream";
@@ -78,7 +80,10 @@ pub struct SubRedis {
 impl SubRedis {
   pub async fn new(connection_info: &str) -> anyhow::Result<Self> {
     let client = redis::Client::open(connection_info)?;
-    let con = ConnectionManager::new(client).await?;
+    let config = ConnectionManagerConfig::new()
+      .set_response_timeout(Some(Duration::from_secs(10)))
+      .set_connection_timeout(Some(Duration::from_secs(10)));
+    let con = client.get_connection_manager_with_config(config).await?;
 
     let mut subscribe = Self { con };
 
@@ -103,7 +108,7 @@ impl SubRedis {
   ) -> anyhow::Result<Vec<StreamMessage>> {
     let opts = StreamReadOptions::default()
       .count(batch_size)
-      .block(10)
+      .block(5000)
       .group(CONSUMER_GROUP, consumer_name);
     
     let results = match self.con.xread_options(
