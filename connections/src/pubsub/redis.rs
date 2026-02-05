@@ -80,7 +80,20 @@ impl SubRedis {
     let client = redis::Client::open(connection_info)?;
     let con = ConnectionManager::new(client).await?;
 
-    Ok(Self { con })
+    let mut subscribe = Self { con };
+
+    let _ = subscribe.create_consumer_group().await;
+        
+    Ok(subscribe)
+  }
+
+  async fn create_consumer_group(&mut self) -> anyhow::Result<()> {
+    self.con.xgroup_create_mkstream(
+      STREAM_KEY,
+      CONSUMER_GROUP,
+      "0"
+    ).await?;
+    Ok(())
   }
 
   pub async fn read(
