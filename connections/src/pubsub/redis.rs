@@ -87,11 +87,10 @@ impl SubRedis {
     &mut self,
     consumer_name: &str,
     batch_size: usize,
-    block_ms: usize,
   ) -> anyhow::Result<Vec<StreamMessage>> {
     let opts = StreamReadOptions::default()
       .count(batch_size)
-      .block(block_ms)
+      .block(5000)
       .group(CONSUMER_GROUP, consumer_name);
     
     let results = match self.con.xread_options(

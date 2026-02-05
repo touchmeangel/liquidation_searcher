@@ -1,14 +1,15 @@
 mod config;
 
 use config::Config;
-use connections::Redis;
+use connections::{Redis, SubRedis};
 use protocols::marginfi::Marginfi;
+use tokio::signal;
 
 #[tokio::main]
 async fn main() {
   let config = Config::open().unwrap();
 
-  let result = liquidate(config).await;
+  let result = start(config).await;
 
   if let Err(err) = result {
     eprintln!("error: {err}");
@@ -19,7 +20,28 @@ async fn main() {
   }
 }
 
-async fn liquidate(config: Config) -> anyhow::Result<()> {
+async fn start(config: Config) -> anyhow::Result<()> {
+  let mut subredis = SubRedis::new(&config.pubsub_url).await?;
+
+  loop {
+    tokio::select! {
+      result = subredis.read(&config.worker_id, config.accounts_batch_size) => {
+        let messages = result?;
+        
+        if messages.is_empty() {
+          continue;
+        }
+        
+        println!("RECEIVED {} ACCOUNTS", messages.len());
+        
+        subredis.ack(&messages).await?;
+      }
+      _ = signal::ctrl_c() => {
+        println!("shutting down worker {}...", config.worker_id);
+        break;
+      }
+    }
+  }
 
   Ok(())
 }

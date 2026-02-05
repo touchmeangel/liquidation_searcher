@@ -20,7 +20,7 @@ async fn main() {
 
 async fn start(config: Config) -> anyhow::Result<()> {
   let mut redis = Redis::new(&config.redis_url).await?;
-  let mut pubredis = PubRedis::new(&config.redis_url).await?;
+  let mut pubredis = PubRedis::new(&config.pubsub_url).await?;
 
   broadcast(&mut redis, &mut pubredis).await
 }
