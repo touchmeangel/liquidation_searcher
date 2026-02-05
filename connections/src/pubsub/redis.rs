@@ -81,8 +81,7 @@ impl SubRedis {
   pub async fn new(connection_info: &str) -> anyhow::Result<Self> {
     let client = redis::Client::open(connection_info)?;
     let config = ConnectionManagerConfig::new()
-      .set_response_timeout(Some(Duration::from_secs(10)))
-      .set_connection_timeout(Some(Duration::from_secs(10)));
+      .set_response_timeout(Some(Duration::from_secs(60)));
     let con = client.get_connection_manager_with_config(config).await?;
 
     let mut subscribe = Self { con };
