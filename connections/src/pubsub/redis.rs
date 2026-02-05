@@ -2,7 +2,13 @@ use redis::{AsyncTypedCommands, aio::ConnectionManager, streams::StreamReadOptio
 use solana_pubkey::Pubkey;
 
 const STREAM_KEY: &str = "account_stream";
+const PENDING_SET: &str = "pending_accounts";
 const CONSUMER_GROUP: &str = "workers";
+
+pub struct StreamMessage {
+  stream_id: String,
+  account: Pubkey
+}
 
 pub struct PubRedis {
   con: ConnectionManager
@@ -30,17 +36,38 @@ impl PubRedis {
   }
 
   pub async fn publish(&mut self, accounts: &[Pubkey]) -> anyhow::Result<Vec<String>> {
-    let mut ids = Vec::new();
-    
-    let mut pipe = redis::pipe();
-    for account in accounts {
-      pipe.xadd(STREAM_KEY, "*", &[("pubkey", account.to_string())]);
+    if accounts.is_empty() {
+      return Ok(Vec::new());
     }
     
-    let results: Vec<String> = pipe.query_async(&mut self.con).await?;
-    ids.extend(results);
+    let mut con = self.con.clone();
+    let account_strings: Vec<String> = accounts.iter()
+      .map(|a| a.to_string())
+      .collect();
     
-    Ok(ids)
+    let script = redis::Script::new(r"
+      local pending_set = KEYS[1]
+      local stream_key = KEYS[2]
+      local ids = {}
+      
+      for i, account in ipairs(ARGV) do
+        if redis.call('SADD', pending_set, account) == 1 then
+          local id = redis.call('XADD', stream_key, '*', 'pubkey', account)
+          table.insert(ids, id)
+        end
+      end
+      
+      return ids
+    ");
+    
+    let results: Vec<String> = script
+      .key(PENDING_SET)
+      .key(STREAM_KEY)
+      .arg(&account_strings)
+      .invoke_async(&mut con)
+      .await?;
+    
+    Ok(results)
   }
 }
 
@@ -61,7 +88,7 @@ impl SubRedis {
     consumer_name: &str,
     batch_size: usize,
     block_ms: usize,
-  ) -> anyhow::Result<Vec<Pubkey>> {
+  ) -> anyhow::Result<Vec<StreamMessage>> {
     let opts = StreamReadOptions::default()
       .count(batch_size)
       .block(block_ms)
@@ -83,11 +110,29 @@ impl SubRedis {
         if let Some(redis::Value::BulkString(data)) = stream_id.map.get("pubkey")
           && let Ok(s) = String::from_utf8(data.clone())
             && let Ok(pubkey) = s.parse::<Pubkey>() {
-              items.push(pubkey);
+              items.push(StreamMessage { stream_id: stream_id.id, account: pubkey });
             }
       }
     }
     
     Ok(items)
+  }
+
+  pub async fn ack(&mut self, items: &[StreamMessage]) -> anyhow::Result<usize> {
+    if items.is_empty() {
+      return Ok(0);
+    }
+    
+    let mut con = self.con.clone();
+    
+    let message_ids: Vec<&str> = items.iter().map(|s| s.stream_id.as_str()).collect();
+    let pubkey_strs: Vec<String> = items.iter().map(|s| s.account.to_string()).collect();
+    
+    let mut pipe = redis::pipe();
+    pipe.xack(STREAM_KEY, CONSUMER_GROUP, &message_ids);
+    pipe.srem(PENDING_SET, &pubkey_strs);
+    
+    let (acked, _removed): (usize, usize) = pipe.query_async(&mut con).await?;
+    Ok(acked)
   }
 }
