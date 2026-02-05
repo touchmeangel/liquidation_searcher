@@ -1,4 +1,3 @@
 mod redis;
-mod pubsub;
 
 pub use redis::*;

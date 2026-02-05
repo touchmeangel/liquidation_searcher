@@ -1,8 +1,11 @@
 [workspace]
-members = ["connections",
-  "protocols", "scheduler",
-  "searcher"
-, "worker"]
+members = [
+  "connections",
+  "protocols",
+  "scheduler",
+  "searcher",
+  "worker"
+]
 
 resolver = "2"
 
