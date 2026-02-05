@@ -13,8 +13,8 @@ async fn main() {
     eprintln!("error: {err}");
     
     err.chain()
-        .skip(1)
-        .for_each(|cause| eprintln!("caused by:\n  {cause}"));
+      .skip(1)
+      .for_each(|cause| eprintln!("caused by:\n  {cause}"));
   }
 }
 
