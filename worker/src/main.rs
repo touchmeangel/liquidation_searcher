@@ -26,7 +26,13 @@ async fn start(config: Config) -> anyhow::Result<()> {
   loop {
     tokio::select! {
       result = subredis.read(&config.worker_id, config.accounts_batch_size) => {
-        let messages = result?;
+        let messages = match result {
+          Ok(messages) => messages,
+          Err(err) => {
+            println!("[{}] error while reading: {}", config.worker_id, err);
+            continue
+          },
+        };
         
         if messages.is_empty() {
           continue;

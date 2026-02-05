@@ -1,7 +1,10 @@
 mod config;
 
+use std::time::Duration;
+
 use config::Config;
 use connections::{PubRedis, Redis};
+use tokio::{signal, time};
 
 #[tokio::main]
 async fn main() {
@@ -22,11 +25,28 @@ async fn start(config: Config) -> anyhow::Result<()> {
   let mut redis = Redis::new(&config.redis_url).await?;
   let mut pubredis = PubRedis::new(&config.pubsub_url).await?;
 
-  broadcast(&mut redis, &mut pubredis).await
+  loop {
+    tokio::select! {
+      _ = broadcast(&mut redis, &mut pubredis) => {
+        time::sleep(Duration::from_secs(20)).await; 
+      }
+      _ = signal::ctrl_c() => {
+        println!("shutting down...");
+        break;
+      }
+    }
+  }
+
+  Ok(())
 }
 
 async fn broadcast(redis: &mut Redis, pubredis: &mut PubRedis) -> anyhow::Result<()> {
   let accounts = redis.get_all().await?;
+  if accounts.is_empty() {
+    println!("* no accounts published");
+    return Ok(());
+  }
+
   let ids = pubredis.publish(&accounts).await?;
 
   println!("* published {} accounts out of {}", ids.len(), accounts.len());
