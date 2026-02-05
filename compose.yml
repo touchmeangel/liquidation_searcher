@@ -6,26 +6,36 @@ services:
     environment:
       - HTTP_URL=${HTTP_URL}
       - WS_URL=${WS_URL}
-      - REDIS_CONNECTION=redis://:${ACCOUNTS_REDIS_PASSWORD}@accounts:6379
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
+    depends_on:
+      - accounts
+
+  scheduler:
+    build:
+      dockerfile: scheduler/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
     depends_on:
       - accounts
   
-  worker:
-    build:
-      dockerfile: worker/Dockerfile
-    restart: unless-stopped
-    environment:
-      - HTTP_URL=${HTTP_URL}
-      - WS_URL=${WS_URL}
-      - REDIS_CONNECTION=redis://:${ACCOUNTS_REDIS_PASSWORD}@accounts:6379
-    depends_on:
-      - accounts
+  # worker:
+  #   build:
+  #     dockerfile: worker/Dockerfile
+  #   restart: unless-stopped
+  #   environment:
+  #     - HTTP_URL=${HTTP_URL}
+  #     - WS_URL=${WS_URL}
+  #     - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
+  #   depends_on:
+  #     - accounts
 
   accounts:
     image: redis:latest
     restart: unless-stopped
     command: >
       redis-server
-      --requirepass ${ACCOUNTS_REDIS_PASSWORD}
+      --requirepass ${REDIS_PASSWORD}
       --save 60 1
       --loglevel warning
