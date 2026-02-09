@@ -85,7 +85,7 @@ impl SubRedis {
       for i = 1, n do
         local v = redis.call('LPOP', KEYS[2])
         if not v then break end
-        redis.call('SREM', KEYS[1])
+        redis.call('SREM', KEYS[1], v)
         table.insert(items, v)
       end
 
