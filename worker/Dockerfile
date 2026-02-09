@@ -10,6 +10,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY worker ./worker
 COPY searcher ./searcher
+COPY add_worker ./add_worker
+COPY rem_worker ./rem_worker
 COPY scheduler ./scheduler
 COPY connections ./connections
 COPY protocols ./protocols

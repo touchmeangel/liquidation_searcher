@@ -3,7 +3,7 @@ mod config;
 use std::time::Duration;
 
 use config::Config;
-use connections::{PubRedis, Redis};
+use connections::{PubRedis, Redis, queue_keys};
 use tokio::{signal, time};
 
 #[tokio::main]
@@ -47,7 +47,7 @@ async fn broadcast(redis: &mut Redis, pubredis: &mut PubRedis) -> anyhow::Result
     return Ok(());
   }
 
-  let ids = pubredis.publish(&accounts).await?;
+  let ids = pubredis.publish(queue_keys::CHECK_QUEUE, &accounts).await?;
 
   println!("* published {} accounts out of {}", ids.len(), accounts.len());
 

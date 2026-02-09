@@ -4,7 +4,9 @@ members = [
   "protocols",
   "scheduler",
   "searcher",
-  "worker"
+  "worker",
+  "add_worker",
+  "rem_worker"
 ]
 
 resolver = "2"

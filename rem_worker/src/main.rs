@@ -25,7 +25,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
 
   loop {
     tokio::select! {
-      result = subredis.read(queue_keys::CHECK_QUEUE, config.accounts_batch_size) => {
+      result = subredis.read(queue_keys::REM_QUEUE, config.accounts_batch_size) => {
         let messages = match result {
           Ok(messages) => messages,
           Err(err) => {

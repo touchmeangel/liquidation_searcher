@@ -3,8 +3,15 @@ use std::time::Duration;
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use solana_pubkey::Pubkey;
 
-const QUEUE_KEY: &str = "accounts_queue";
-const PENDING_SET: &str = "pending_accounts";
+pub mod queue_keys {
+  pub const ADD_QUEUE: &str = "accounts_add_queue";
+  pub const CHECK_QUEUE: &str = "accounts_check_queue";
+  pub const REM_QUEUE: &str = "accounts_rem_queue";
+}
+
+fn queue_to_pending_set(queue: &str) -> String {
+  format!("{}_pending", queue)
+}
 
 pub struct PubRedis {
   con: ConnectionManager
@@ -20,7 +27,7 @@ impl PubRedis {
     Ok(publish)
   }
 
-  pub async fn publish(&mut self, accounts: &[Pubkey]) -> anyhow::Result<Vec<String>> {
+  pub async fn publish(&mut self, queue: &str, accounts: &[Pubkey]) -> anyhow::Result<Vec<String>> {
     if accounts.is_empty() {
       return Ok(Vec::new());
     }
@@ -44,8 +51,8 @@ impl PubRedis {
     ");
     
     let results: Vec<String> = script
-      .key(PENDING_SET)
-      .key(QUEUE_KEY)
+      .key(queue_to_pending_set(queue))
+      .key(queue)
       .arg(&account_strings)
       .invoke_async(&mut con)
       .await?;
@@ -72,6 +79,7 @@ impl SubRedis {
 
   pub async fn read(
     &mut self,
+    queue: &str,
     batch_size: usize,
   ) -> anyhow::Result<Vec<Pubkey>> {
     if batch_size == 0 {
@@ -93,8 +101,8 @@ impl SubRedis {
     "#);
 
     let raw: Vec<String> = script
-      .key(PENDING_SET)
-      .key(QUEUE_KEY)
+      .key(queue_to_pending_set(queue))
+      .key(queue)
       .arg(batch_size)
       .invoke_async(&mut self.con)
       .await?;
