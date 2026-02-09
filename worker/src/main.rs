@@ -21,7 +21,7 @@ async fn main() {
 
 async fn start(config: Config) -> anyhow::Result<()> {
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
-  println!("[{}] started listening", config.worker_id);
+  println!("started listening");
 
   loop {
     tokio::select! {
@@ -29,7 +29,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         let messages = match result {
           Ok(messages) => messages,
           Err(err) => {
-            println!("[{}] error while reading: {}", config.worker_id, err);
+            println!("error while reading: {}", err);
             continue
           },
         };
@@ -41,7 +41,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         println!("RECEIVED {} ACCOUNTS", messages.len());
       }
       _ = signal::ctrl_c() => {
-        println!("[{}] shutting down...", config.worker_id);
+        println!("shutting down...");
         break;
       }
     }
