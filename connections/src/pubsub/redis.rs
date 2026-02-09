@@ -20,7 +20,9 @@ pub struct PubRedis {
 impl PubRedis {
   pub async fn new(connection_info: &str) -> anyhow::Result<Self> {
     let client = redis::Client::open(connection_info)?;
-    let con = ConnectionManager::new(client).await?;
+    let config = ConnectionManagerConfig::new()
+      .set_response_timeout(Some(Duration::from_secs(60)));
+    let con = client.get_connection_manager_with_config(config).await?;
 
     let publish = Self { con };
 
