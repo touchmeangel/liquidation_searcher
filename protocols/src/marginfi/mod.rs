@@ -4,6 +4,7 @@ mod types;
 mod consts;
 mod errors;
 mod events;
+mod filter;
 mod macros;
 mod prelude;
 mod wrapped_i80f48;
@@ -17,6 +18,7 @@ use events::*;
 use solana_account_decoder::UiDataSliceConfig;
 use solana_rpc_client_types::filter::{Memcmp, RpcFilterType};
 use wrapped_i80f48::*;
+pub use filter::*;
 pub use user::*;
 
 use std::rc::Rc;

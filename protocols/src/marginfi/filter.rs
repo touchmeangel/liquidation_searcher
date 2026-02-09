@@ -1,5 +1,6 @@
 use fixed::types::I80F48;
-use protocols::marginfi::MarginfiUser;
+
+use crate::marginfi::MarginfiUser;
 
 #[derive(Debug)]
 pub struct AccountFilter<T> {

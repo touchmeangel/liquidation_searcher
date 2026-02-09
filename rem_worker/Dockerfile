@@ -8,14 +8,16 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
+COPY rem_worker ./rem_worker
 COPY worker ./worker
+COPY add_worker ./add_worker
 COPY searcher ./searcher
 COPY scheduler ./scheduler
 COPY connections ./connections
 COPY protocols ./protocols
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-RUN cargo build --release --package worker
+RUN cargo build --release --package rem_worker
 
 FROM debian:bookworm-slim
 
@@ -26,8 +28,8 @@ RUN apt-get update && apt-get install -y \
 
 RUN useradd -m -u 1000 appuser
 
-COPY --from=builder /app/target/release/worker /usr/local/bin/worker
+COPY --from=builder /app/target/release/rem_worker /usr/local/bin/rem_worker
 
 USER appuser
 
-CMD ["worker"]
+CMD ["rem_worker"]

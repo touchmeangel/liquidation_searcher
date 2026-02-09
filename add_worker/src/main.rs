@@ -1,12 +1,9 @@
 mod config;
-mod filter;
-
-use filter::AccountFilter;
 
 use config::Config;
 use connections::{Redis, SubRedis, queue_keys};
 use fixed::types::I80F48;
-use protocols::marginfi::Marginfi;
+use protocols::marginfi::{AccountFilter, Marginfi};
 use solana_pubkey::Pubkey;
 use tokio::{signal, time::Instant};
 
@@ -60,7 +57,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         };
       }
       _ = signal::ctrl_c() => {
-        println!("shutting down");
+        println!("Shutting down");
         break;
       }
     }

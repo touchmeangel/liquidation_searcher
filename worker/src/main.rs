@@ -21,7 +21,7 @@ async fn main() {
 
 async fn start(config: Config) -> anyhow::Result<()> {
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
-  println!("Started listening...");
+  println!("Started listening");
 
   loop {
     tokio::select! {
@@ -41,7 +41,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         println!("RECEIVED {} ACCOUNTS", messages.len());
       }
       _ = signal::ctrl_c() => {
-        println!("shutting down");
+        println!("Shutting down");
         break;
       }
     }
