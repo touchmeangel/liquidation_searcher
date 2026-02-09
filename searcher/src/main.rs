@@ -21,7 +21,7 @@ async fn main() {
         .for_each(|cause| eprintln!("caused by:\n  {cause}"));
     }
 
-    sleep(Duration::from_secs(18000)).await;  
+    sleep(Duration::from_secs(3600)).await;  
   }
 }
 
