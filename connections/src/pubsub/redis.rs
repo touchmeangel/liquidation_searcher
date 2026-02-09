@@ -3,14 +3,8 @@ use std::time::Duration;
 use redis::{AsyncTypedCommands, aio::{ConnectionManager, ConnectionManagerConfig}, streams::StreamReadOptions};
 use solana_pubkey::Pubkey;
 
-const STREAM_KEY: &str = "account_stream";
+const QUEUE_KEY: &str = "accounts_queue";
 const PENDING_SET: &str = "pending_accounts";
-const CONSUMER_GROUP: &str = "workers";
-
-pub struct StreamMessage {
-  stream_id: String,
-  account: Pubkey
-}
 
 pub struct PubRedis {
   con: ConnectionManager
@@ -21,20 +15,9 @@ impl PubRedis {
     let client = redis::Client::open(connection_info)?;
     let con = ConnectionManager::new(client).await?;
 
-    let mut publish = Self { con };
+    let publish = Self { con };
 
-    let _ = publish.create_consumer_group().await;
-        
     Ok(publish)
-  }
-
-  async fn create_consumer_group(&mut self) -> anyhow::Result<()> {
-    self.con.xgroup_create_mkstream(
-      STREAM_KEY,
-      CONSUMER_GROUP,
-      "0"
-    ).await?;
-    Ok(())
   }
 
   pub async fn publish(&mut self, accounts: &[Pubkey]) -> anyhow::Result<Vec<String>> {
@@ -48,23 +31,24 @@ impl PubRedis {
       .collect();
     
     let script = redis::Script::new(r"
-      local pending_set = KEYS[1]
-      local stream_key = KEYS[2]
-      local ids = {}
-      
+      -- KEYS[1] = pending_set
+      -- KEYS[2] = work_queue
+
+      local pushed = {}
+
       for i, account in ipairs(ARGV) do
-        if redis.call('SADD', pending_set, account) == 1 then
-          local id = redis.call('XADD', stream_key, '*', 'pubkey', account)
-          table.insert(ids, id)
+        if redis.call('SADD', KEYS[1], account) == 1 then
+          redis.call('RPUSH', KEYS[2], account)
+          table.insert(pushed, account)
         end
       end
-      
-      return ids
+
+      return pushed
     ");
     
     let results: Vec<String> = script
       .key(PENDING_SET)
-      .key(STREAM_KEY)
+      .key(QUEUE_KEY)
       .arg(&account_strings)
       .invoke_async(&mut con)
       .await?;
@@ -84,71 +68,46 @@ impl SubRedis {
       .set_response_timeout(Some(Duration::from_secs(60)));
     let con = client.get_connection_manager_with_config(config).await?;
 
-    let mut subscribe = Self { con };
+    let subscribe = Self { con };
 
-    let _ = subscribe.create_consumer_group().await;
-        
     Ok(subscribe)
-  }
-
-  async fn create_consumer_group(&mut self) -> anyhow::Result<()> {
-    self.con.xgroup_create_mkstream(
-      STREAM_KEY,
-      CONSUMER_GROUP,
-      "0"
-    ).await?;
-    Ok(())
   }
 
   pub async fn read(
     &mut self,
-    consumer_name: &str,
     batch_size: usize,
-  ) -> anyhow::Result<Vec<StreamMessage>> {
-    let opts = StreamReadOptions::default()
-      .count(batch_size)
-      .block(5000)
-      .group(CONSUMER_GROUP, consumer_name);
-    
-    let results = match self.con.xread_options(
-      &[STREAM_KEY],
-      &[">"],
-      &opts
-    ).await? {
-      Some(results) => results,
-      None => return Ok(Vec::new()),
-    };
+  ) -> anyhow::Result<Vec<Pubkey>> {
+    if batch_size == 0 {
+      return Ok(Vec::new());
+    }
 
-    let mut items = Vec::new();
-    
-    for stream_key in results.keys {
-      for stream_id in stream_key.ids {
-        if let Some(redis::Value::BulkString(data)) = stream_id.map.get("pubkey")
-          && let Ok(s) = String::from_utf8(data.clone())
-            && let Ok(pubkey) = s.parse::<Pubkey>() {
-              items.push(StreamMessage { stream_id: stream_id.id, account: pubkey });
-            }
+    let script = redis::Script::new(r#"
+      local n = tonumber(ARGV[1])
+      local items = {}
+
+      for i = 1, n do
+        local v = redis.call('LPOP', KEYS[1])
+        if not v then break end
+        table.insert(items, v)
+      end
+
+      return items
+    "#);
+
+    let raw: Vec<String> = script
+      .key(QUEUE_KEY)
+      .arg(batch_size)
+      .invoke_async(&mut self.con)
+      .await?;
+
+    let mut items = Vec::with_capacity(raw.len());
+
+    for s in raw {
+      if let Ok(pubkey) = s.parse::<Pubkey>() {
+        items.push(pubkey);
       }
     }
-    
-    Ok(items)
-  }
 
-  pub async fn ack(&mut self, items: &[StreamMessage]) -> anyhow::Result<usize> {
-    if items.is_empty() {
-      return Ok(0);
-    }
-    
-    let mut con = self.con.clone();
-    
-    let message_ids: Vec<&str> = items.iter().map(|s| s.stream_id.as_str()).collect();
-    let pubkey_strs: Vec<String> = items.iter().map(|s| s.account.to_string()).collect();
-    
-    let mut pipe = redis::pipe();
-    pipe.xack(STREAM_KEY, CONSUMER_GROUP, &message_ids);
-    pipe.srem(PENDING_SET, &pubkey_strs);
-    
-    let (acked, _removed): (usize, usize) = pipe.query_async(&mut con).await?;
-    Ok(acked)
+    Ok(items)
   }
 }

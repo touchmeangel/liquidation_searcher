@@ -25,7 +25,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
 
   loop {
     tokio::select! {
-      result = subredis.read(&config.worker_id, config.accounts_batch_size) => {
+      result = subredis.read(config.accounts_batch_size) => {
         let messages = match result {
           Ok(messages) => messages,
           Err(err) => {
@@ -39,8 +39,6 @@ async fn start(config: Config) -> anyhow::Result<()> {
         }
         
         println!("RECEIVED {} ACCOUNTS", messages.len());
-        
-        subredis.ack(&messages).await?;
       }
       _ = signal::ctrl_c() => {
         println!("[{}] shutting down...", config.worker_id);
