@@ -7,7 +7,7 @@ members = [
   "worker",
   "add_worker",
   "rem_worker"
-]
+, "sync"]
 
 resolver = "2"
 
