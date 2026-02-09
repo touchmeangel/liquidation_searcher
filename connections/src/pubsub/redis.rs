@@ -31,9 +31,6 @@ impl PubRedis {
       .collect();
     
     let script = redis::Script::new(r"
-      -- KEYS[1] = pending_set
-      -- KEYS[2] = work_queue
-
       local pushed = {}
 
       for i, account in ipairs(ARGV) do
@@ -86,8 +83,9 @@ impl SubRedis {
       local items = {}
 
       for i = 1, n do
-        local v = redis.call('LPOP', KEYS[1])
+        local v = redis.call('LPOP', KEYS[2])
         if not v then break end
+        redis.call('SREM', KEYS[1])
         table.insert(items, v)
       end
 
@@ -95,6 +93,7 @@ impl SubRedis {
     "#);
 
     let raw: Vec<String> = script
+      .key(PENDING_SET)
       .key(QUEUE_KEY)
       .arg(batch_size)
       .invoke_async(&mut self.con)
