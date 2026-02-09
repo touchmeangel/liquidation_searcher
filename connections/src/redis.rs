@@ -22,6 +22,13 @@ impl Redis {
     Ok(result)
   }
 
+  pub async fn rem<'a, I>(&mut self, accounts: I) -> anyhow::Result<usize>
+    where I: IntoIterator<Item = &'a Pubkey> {
+    let strings: Vec<String> = accounts.into_iter().map(ToString::to_string).collect();
+    let result = self.con.srem(KEY, &strings).await?;
+    Ok(result)
+  }
+
   pub async fn get_all(&mut self) -> anyhow::Result<Vec<Pubkey>> {
     let strings = self.con.smembers(KEY).await?;
     
