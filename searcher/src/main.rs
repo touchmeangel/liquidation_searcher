@@ -37,7 +37,7 @@ async fn search(config: Config) -> anyhow::Result<()> {
   println!("* found {} marginfi accounts ({:?})", accounts.len(), duration);
 
   let result = pubredis.publish(queue_keys::ADD_QUEUE, &accounts).await?.len();
-  println!("* published {} accounts out of {}", accounts.len(), result);
+  println!("* uploaded {} accounts out of {}", result, accounts.len());
   
   Ok(())
 }

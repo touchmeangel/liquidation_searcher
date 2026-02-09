@@ -43,13 +43,13 @@ async fn start(config: Config) -> anyhow::Result<()> {
 async fn broadcast(redis: &mut Redis, pubredis: &mut PubRedis) -> anyhow::Result<()> {
   let accounts = redis.get_all().await?;
   if accounts.is_empty() {
-    println!("* no accounts published");
+    println!("* no accounts synced");
     return Ok(());
   }
 
   let ids = pubredis.publish(queue_keys::REM_QUEUE, &accounts).await?;
 
-  println!("* published {} accounts out of {}", ids.len(), accounts.len());
+  println!("* synced {} accounts out of {}", ids.len(), accounts.len());
 
   Ok(())
 }

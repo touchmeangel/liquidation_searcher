@@ -18,6 +18,15 @@ services:
       - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
     depends_on:
       - accounts
+  sync:
+    build:
+      dockerfile: sync/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
+    depends_on:
+      - accounts
   add_worker:
     build:
       dockerfile: add_worker/Dockerfile
