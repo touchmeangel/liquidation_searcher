@@ -21,7 +21,7 @@ async fn main() {
 
 async fn start(config: Config) -> anyhow::Result<()> {
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
-  println!("listening for accounts");
+  println!("Started listening...");
 
   loop {
     tokio::select! {

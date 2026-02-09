@@ -38,7 +38,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
   let marginfi = Marginfi::new(config.http_url, config.ws_url).await?;
   let mut redis = Redis::new(&config.redis_url).await?;
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
-  println!("listening for accounts");
+  println!("Started listening...");
 
   loop {
     tokio::select! {
@@ -55,38 +55,35 @@ async fn start(config: Config) -> anyhow::Result<()> {
           continue;
         }
         
-        let start = Instant::now();
-        let items = match check_pubkeys(&marginfi, &accounts, &filter).await {
-          Ok(pubkeys) => pubkeys,
-          Err(err) => {
-            println!("error filtering accounts: {}", err);
-            continue
-          },
+        if let Err(err) = handle(&marginfi, &mut redis, accounts, &filter).await {
+          println!("error adding accounts: {}", err);
         };
-        let duration = start.elapsed();
-
-        let len = items.len();
-        if len == 0 {
-          continue;
-        }
-
-        let result = match redis.add(items).await {
-          Ok(result) => result,
-          Err(error) => {
-            println!("error adding {} accounts: {}", len, error);
-            continue;
-          },
-        };
-    
-        if result > 0 {
-          println!("* added {} accounts ({:?})", result, duration);
-        }
       }
       _ = signal::ctrl_c() => {
         println!("shutting down");
         break;
       }
     }
+  }
+
+  Ok(())
+}
+
+async fn handle<T>(marginfi: &Marginfi, redis: &mut Redis, accounts: Vec<Pubkey>, filter: &AccountFilter<T>) -> anyhow::Result<()>
+  where I80F48: PartialOrd<T> {
+  let start = Instant::now();
+  let items = check_pubkeys(marginfi, &accounts, filter).await?;
+  let duration = start.elapsed();
+
+  let len = items.len();
+  if len == 0 {
+    return Ok(());
+  }
+
+  let result = redis.add(items).await?;
+
+  if result > 0 {
+    println!("* added {} accounts ({:?})", result, duration);
   }
 
   Ok(())
