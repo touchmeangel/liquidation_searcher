@@ -41,7 +41,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         println!("RECEIVED {} ACCOUNTS", messages.len());
       }
       _ = signal::ctrl_c() => {
-        println!("shutting down...");
+        println!("shutting down");
         break;
       }
     }
