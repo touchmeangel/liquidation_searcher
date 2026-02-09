@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use redis::{AsyncTypedCommands, aio::{ConnectionManager, ConnectionManagerConfig}, streams::StreamReadOptions};
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use solana_pubkey::Pubkey;
 
 const QUEUE_KEY: &str = "accounts_queue";
