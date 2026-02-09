@@ -21,12 +21,12 @@ async fn main() {
 
 async fn start(config: Config) -> anyhow::Result<()> {
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
-  println!("Started listening");
+  println!("Connection established, listening");
 
   loop {
     tokio::select! {
       result = subredis.read(queue_keys::CHECK_QUEUE, config.accounts_batch_size) => {
-        let messages = match result {
+        let accounts = match result {
           Ok(messages) => messages,
           Err(err) => {
             println!("error while reading: {}", err);
@@ -34,11 +34,11 @@ async fn start(config: Config) -> anyhow::Result<()> {
           },
         };
         
-        if messages.is_empty() {
+        if accounts.is_empty() {
           continue;
         }
         
-        println!("RECEIVED {} ACCOUNTS", messages.len());
+        println!("RECEIVED {} ACCOUNTS", accounts.len());
       }
       _ = signal::ctrl_c() => {
         println!("Shutting down");

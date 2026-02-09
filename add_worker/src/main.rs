@@ -35,7 +35,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
   let marginfi = Marginfi::new(config.http_url, config.ws_url).await?;
   let mut redis = Redis::new(&config.redis_url).await?;
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
-  println!("Started listening...");
+  println!("Connection established, listening");
 
   loop {
     tokio::select! {
