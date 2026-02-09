@@ -12,6 +12,7 @@ COPY searcher ./searcher
 COPY worker ./worker
 COPY add_worker ./add_worker
 COPY rem_worker ./rem_worker
+COPY sync ./sync
 COPY scheduler ./scheduler
 COPY connections ./connections
 COPY protocols ./protocols

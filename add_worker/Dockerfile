@@ -11,6 +11,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY add_worker ./add_worker
 COPY worker ./worker
 COPY rem_worker ./rem_worker
+COPY sync ./sync
 COPY searcher ./searcher
 COPY scheduler ./scheduler
 COPY connections ./connections
