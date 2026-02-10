@@ -17,7 +17,7 @@ impl Config {
     let ws_url = std::env::var("WS_URL").context("\"WS_URL\" is required")?;
     let redis_url = std::env::var("REDIS_CONNECTION").context("\"REDIS_CONNECTION\" is required")?;
     let pubsub_url = std::env::var("PUBSUB_CONNECTION").context("\"PUBSUB_CONNECTION\" is required")?;
-    let capacity_str = std::env::var("ACCOUNTS_BATCH_SIZE");
+    let capacity_str = std::env::var("CAPACITY");
     let capacity = capacity_str.map(|s| s.parse::<usize>()).unwrap_or(Ok(1))?;
     let accounts_batch_size_str = std::env::var("ACCOUNTS_BATCH_SIZE");
     let accounts_batch_size = accounts_batch_size_str.map(|s| s.parse::<usize>()).unwrap_or(Ok(1000))?;
