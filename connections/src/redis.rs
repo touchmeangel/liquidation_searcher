@@ -3,6 +3,7 @@ use solana_pubkey::Pubkey;
 
 const KEY: &str = "accounts";
 
+#[derive(Clone)]
 pub struct Redis {
   con: ConnectionManager
 }

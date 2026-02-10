@@ -22,6 +22,7 @@ pub use filter::*;
 pub use user::*;
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use solana_pubkey::Pubkey;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
@@ -30,7 +31,6 @@ use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
 use anchor_client::solana_sdk::signature::Keypair;
-use std::time::Instant;
 
 use crate::consts::MARGINFI_PROGRAM_ID;
 use crate::marginfi::types::MarginfiAccount;
@@ -38,14 +38,14 @@ use crate::marginfi::types::MarginfiAccount;
 pub struct Marginfi {
   pubsub: PubsubClient,
   rpc_client: RpcClient,
-  client: Client<Rc<Keypair>>,
-  program: Program<Rc<Keypair>>,
+  client: Client<Arc<Keypair>>,
+  program: Program<Arc<Keypair>>,
 }
 
 impl Marginfi {
   pub async fn new(http_url: String, ws_url: String) -> anyhow::Result<Self> {
     let pubsub = PubsubClient::new(&ws_url).await?;
-    let payer = Rc::new(Keypair::new());
+    let payer = Arc::new(Keypair::new());
     let client = Client::new(Cluster::Custom(http_url, ws_url), payer);
     let program = client.program(MARGINFI_PROGRAM_ID)?;
     let rpc_client = program.rpc();

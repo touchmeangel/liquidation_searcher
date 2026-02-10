@@ -1,11 +1,13 @@
 mod config;
 
+use std::sync::Arc;
+
 use config::Config;
 use connections::{Redis, SubRedis, queue_keys};
 use fixed::types::I80F48;
 use protocols::marginfi::{AccountFilter, Marginfi};
 use solana_pubkey::Pubkey;
-use tokio::{signal, time::Instant};
+use tokio::{signal, sync::Semaphore, time::Instant};
 
 #[tokio::main]
 async fn main() {
@@ -23,23 +25,25 @@ async fn main() {
 }
 
 async fn start(config: Config) -> anyhow::Result<()> {
-  let filter = AccountFilter {
+  let filter = Arc::new(AccountFilter {
     min_asset_value: Some(10.0),
     max_asset_value: None,
     min_maint_percentage: None,
     max_maint_percentage: Some(0.2),
     min_maint: None,
     max_maint: None
-  };
+  });
 
-  let marginfi = Marginfi::new(config.http_url, config.ws_url).await?;
-  let mut redis = Redis::new(&config.redis_url).await?;
+  let marginfi = Arc::new(Marginfi::new(config.http_url, config.ws_url).await?);
+  let redis = Redis::new(&config.redis_url).await?;
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
   println!("connection established, listening");
 
+  let semaphore = Arc::new(Semaphore::new(config.capacity));
+
   loop {
     tokio::select! {
-      result = subredis.read(queue_keys::ADD_QUEUE, config.accounts_batch_size) => {
+      result = subredis.read(queue_keys::REM_QUEUE, config.accounts_batch_size) => {
         let accounts = match result {
           Ok(messages) => messages,
           Err(err) => {
@@ -52,9 +56,17 @@ async fn start(config: Config) -> anyhow::Result<()> {
           continue;
         }
         
-        if let Err(err) = handle(&marginfi, &mut redis, accounts, &filter).await {
-          println!("error adding accounts: {}", err);
-        };
+        let permit = semaphore.clone();
+        let mut redis_clone = redis.clone();
+        let marginfi_clone = Arc::clone(&marginfi);
+        let filter_clone = Arc::clone(&filter);
+        tokio::spawn(async move {
+          let _guard = permit.acquire().await.unwrap();
+
+          if let Err(err) = handle(&marginfi_clone, &mut redis_clone, accounts, &filter_clone).await {
+            println!("error removing accounts: {}", err);
+          };
+        });
       }
       _ = signal::ctrl_c() => {
         println!("shutting down");
