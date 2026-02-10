@@ -34,6 +34,7 @@ services:
     environment:
       - HTTP_URL=${HTTP_URL}
       - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
       - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
       - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
       - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
@@ -46,6 +47,7 @@ services:
     environment:
       - HTTP_URL=${HTTP_URL}
       - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
       - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
       - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
     depends_on:
@@ -57,6 +59,7 @@ services:
     environment:
       - HTTP_URL=${HTTP_URL}
       - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
       - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
       - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
       - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@accounts:6379
