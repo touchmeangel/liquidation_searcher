@@ -57,7 +57,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
         };
       }
       _ = signal::ctrl_c() => {
-        println!("Shutting down");
+        println!("shutting down");
         break;
       }
     }
