@@ -1,8 +1,12 @@
 mod config;
 
+use std::sync::Arc;
+
 use config::Config;
 use connections::{SubRedis, queue_keys};
-use tokio::signal;
+use protocols::marginfi::Marginfi;
+use solana_pubkey::Pubkey;
+use tokio::{signal, sync::Semaphore};
 
 #[tokio::main]
 async fn main() {
@@ -20,12 +24,15 @@ async fn main() {
 }
 
 async fn start(config: Config) -> anyhow::Result<()> {
+  let marginfi = Arc::new(Marginfi::new(config.http_url, config.ws_url).await?);
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
   println!("connection established, listening");
 
+  let semaphore = Arc::new(Semaphore::new(config.capacity));
+
   loop {
     tokio::select! {
-      result = subredis.read(queue_keys::CHECK_QUEUE, config.accounts_batch_size) => {
+      result = subredis.read(queue_keys::ADD_QUEUE, config.accounts_batch_size) => {
         let accounts = match result {
           Ok(messages) => messages,
           Err(err) => {
@@ -38,7 +45,15 @@ async fn start(config: Config) -> anyhow::Result<()> {
           continue;
         }
         
-        println!("RECEIVED {} ACCOUNTS", accounts.len());
+        let permit = semaphore.clone();
+        let marginfi_clone = Arc::clone(&marginfi);
+        tokio::spawn(async move {
+          let _guard = permit.acquire().await.unwrap();
+
+          if let Err(err) = handle(&marginfi_clone, accounts).await {
+            println!("error liquidating accounts: {}", err);
+          };
+        });
       }
       _ = signal::ctrl_c() => {
         println!("shutting down");
@@ -46,6 +61,12 @@ async fn start(config: Config) -> anyhow::Result<()> {
       }
     }
   }
+
+  Ok(())
+}
+
+async fn handle(marginfi: &Marginfi, accounts: Vec<Pubkey>) -> anyhow::Result<()> {
+  println!("RECEIVED {} ACCOUNTS", accounts.len());
 
   Ok(())
 }
