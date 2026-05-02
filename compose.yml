@@ -1,0 +1,118 @@
+services:
+  searcher:
+    build:
+      dockerfile: searcher/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      - redis
+  sync:
+    build:
+      dockerfile: sync/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      - redis
+  worker:
+    build:
+      dockerfile: worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - ASSET_HAIRCUT=${ASSET_HAIRCUT}
+    depends_on:
+      - redis
+  ws_account_worker:
+    build:
+      dockerfile: ws_account_worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - WS_URL=${WS_URL}
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      - redis
+  ws_subscription_worker:
+    build:
+      dockerfile: ws_subscription_worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
+      - HEARTBEAT_REDIS=redis://:${REDIS_PASSWORD}@redis:6379
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
+      - ACCOUNTS_ACCEPT_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
+    depends_on:
+      - redis
+  check_worker:
+    build:
+      dockerfile: check_worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
+      - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      - redis
+  add_worker:
+    build:
+      dockerfile: add_worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
+      - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - MIN_ASSET_VALUE=${MIN_ASSET_VALUE}
+      - MAX_ASSET_VALUE=${MAX_ASSET_VALUE}
+      - MIN_LIABILITY_VALUE=${MIN_LIABILITY_VALUE}
+      - MAX_LIABILITY_VALUE=${MAX_LIABILITY_VALUE}
+      - MIN_MAINT_PERCENTAGE=${MIN_MAINT_PERCENTAGE}
+      - MAX_MAINT_PERCENTAGE=${MAX_MAINT_PERCENTAGE}
+      - MIN_MAINT=${MIN_MAINT}
+      - MAX_MAINT=${MAX_MAINT}
+    depends_on:
+      - redis
+  rem_worker:
+    build:
+      dockerfile: rem_worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_URL=${HTTP_URL}
+      - WS_URL=${WS_URL}
+      - CAPACITY=${CAPACITY}
+      - ACCOUNTS_BATCH_SIZE=${ACCOUNTS_BATCH_SIZE}
+      - REDIS_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
+      - MIN_ASSET_VALUE=${MIN_ASSET_VALUE}
+      - MAX_ASSET_VALUE=${MAX_ASSET_VALUE}
+      - MIN_LIABILITY_VALUE=${MIN_LIABILITY_VALUE}
+      - MAX_LIABILITY_VALUE=${MAX_LIABILITY_VALUE}
+      - MIN_MAINT_PERCENTAGE=${MIN_MAINT_PERCENTAGE}
+      - MAX_MAINT_PERCENTAGE=${MAX_MAINT_PERCENTAGE}
+      - MIN_MAINT=${MIN_MAINT}
+      - MAX_MAINT=${MAX_MAINT}
+    depends_on:
+      - redis
+  redis:
+    image: redis:latest
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --save 60 1
+      --loglevel warning

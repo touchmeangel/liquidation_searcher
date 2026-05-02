@@ -1,0 +1,93 @@
+use fixed::types::I80F48;
+
+use crate::marginfi::MarginfiUser;
+
+#[derive(Debug)]
+pub struct AccountFilter<T> {
+  pub min_asset_value: Option<T>,
+  pub max_asset_value: Option<T>,
+  pub min_liability_value: Option<T>,
+  pub max_liability_value: Option<T>,
+  pub min_maint_percentage: Option<T>,
+  pub max_maint_percentage: Option<T>,
+  pub min_maint: Option<T>,
+  pub max_maint: Option<T>,
+}
+
+impl<T> Default for AccountFilter<T> {
+  fn default() -> Self {
+    Self {
+      min_asset_value: None,
+      max_asset_value: None,
+      min_liability_value: None,
+      max_liability_value: None,
+      min_maint_percentage: None,
+      max_maint_percentage: None,
+      min_maint: None,
+      max_maint: None,
+    }
+  }
+}
+
+impl<T> AccountFilter<T> where I80F48: PartialOrd<T> {
+  // Seized <= Repaid * (1 + max_fee)
+  // Where Seized is the equity value withdrawn, in Repaidistheequityvaluerepaid, in,
+  // and max fee is the maximum allowed profit currently configured at 10%.
+  // Note that equity value is the price of the token without any weights applied, but inclusive of oracle confidence interval adjustments.
+  pub fn check(&self, user: &MarginfiUser) -> anyhow::Result<bool> {
+    let asset_value = user.asset_value()?;
+    let liability_value = user.liability_value()?;
+    let maint = user.maintenance()?;
+    let maint_percentage = maint.checked_div(asset_value).unwrap_or(I80F48::from_num(1));
+
+    if let Some(ref min) = self.min_asset_value {
+      if &asset_value < min {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(ref max) = self.max_asset_value {
+      if &asset_value > max {
+        return Ok(false);
+      }
+    }
+
+    if let Some(ref min) = self.min_liability_value {
+      if &liability_value < min {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(ref max) = self.max_liability_value {
+      if &liability_value > max {
+        return Ok(false);
+      }
+    }
+
+    if let Some(ref min) = self.min_maint_percentage {
+      if &maint_percentage < min {
+        return Ok(false);
+      }
+    }
+
+    if let Some(ref max) = self.max_maint_percentage {
+      if &maint_percentage >= max {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(ref min) = self.min_maint {
+      if &maint < min {
+        return Ok(false);
+      }
+    }
+    
+    if let Some(ref max) = self.max_maint {
+      if &maint > max {
+        return Ok(false);
+      }
+    }
+    
+    Ok(true)
+  }    
+}

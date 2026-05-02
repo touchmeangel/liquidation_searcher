@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+*.md
+.env
+.vscode/
+.idea/
+test_environment/

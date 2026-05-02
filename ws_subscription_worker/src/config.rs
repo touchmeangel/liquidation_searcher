@@ -1,0 +1,45 @@
+use anyhow::Context;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct Config {
+  pub(crate) http_url: String,
+  pub(crate) ws_url: String,
+  pub(crate) redis_url: String,
+  pub(crate) pubsub_url: String,
+  pub(crate) heartbeat_url: String,
+  pub(crate) accounts_batch_size: usize,
+  pub(crate) accounts_accept_batch_size: usize,
+}
+
+impl Config {
+  pub fn open() -> anyhow::Result<Config> {
+    let _ = dotenvy::dotenv();
+    let http_url = std::env::var("HTTP_URL").context("\"HTTP_URL\" is required")?;
+    let ws_url = std::env::var("WS_URL").context("\"WS_URL\" is required")?;
+    let redis_url = std::env::var("REDIS_CONNECTION").context("\"REDIS_CONNECTION\" is required")?;
+    let pubsub_url = std::env::var("PUBSUB_CONNECTION").context("\"PUBSUB_CONNECTION\" is required")?;
+    let heartbeat_url = std::env::var("HEARTBEAT_REDIS").context("\"HEARTBEAT_REDIS\" is required")?;
+    let accounts_batch_size = env_usize("ACCOUNTS_BATCH_SIZE", 1000).context("invalid \"ACCOUNTS_BATCH_SIZE\" value")?;
+    let accounts_accept_batch_size = env_usize("ACCOUNTS_ACCEPT_BATCH_SIZE", 1000).context("invalid \"ACCOUNTS_ACCEPT_BATCH_SIZE\" value")?;
+    let config = Config {
+      http_url,
+      ws_url,
+      redis_url,
+      pubsub_url,
+      heartbeat_url,
+      accounts_batch_size,
+      accounts_accept_batch_size,
+    };
+
+    Ok(config)
+  }
+}
+
+fn env_usize(name: &str, default: usize) -> Result<usize, std::num::ParseIntError> {
+  std::env::var(name)
+    .ok()
+    .filter(|s| !s.is_empty())
+    .map(|s| s.parse::<usize>())
+    .transpose()
+    .map(|opt| opt.unwrap_or(default))
+}

@@ -1,0 +1,55 @@
+name: Main pipeline
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # tests:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Install Rust
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         components: clippy
+
+  #     - name: Run Clippy
+  #       run: cargo clippy --all-targets --all-features
+
+  #     - name: Run build test
+  #       run: |
+  #         cargo build --locked
+  #         cargo test --locked --all-features
+  
+  
+  build:
+    # needs: tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Log in to DockerHub
+      run: echo "${{ secrets.DOCKER_PSWD }}" | docker login -u "${{ secrets.DOCKER_NAME }}" --password-stdin
+
+    - name: Build Docker images
+      run: | 
+          docker build -f ./add_worker/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/add-worker:latest
+          docker build -f ./check_worker/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/check-worker:latest
+          docker build -f ./rem_worker/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/rem-worker:latest
+          docker build -f ./searcher/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/searcher:latest
+          docker build -f ./sync/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/sync:latest
+          docker build -f ./worker/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/worker:latest
+          docker build -f ./ws_account_worker/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/ws-account-worker:latest
+          docker build -f ./ws_subscription_worker/Dockerfile . -t ${{ secrets.DOCKER_NAME }}/ws-subscription-worker:latest
+
+    - name: Push image to DockerHub
+      run: |
+          docker push ${{ secrets.DOCKER_NAME }}/add-worker:latest
+          docker push ${{ secrets.DOCKER_NAME }}/check-worker:latest
+          docker push ${{ secrets.DOCKER_NAME }}/rem-worker:latest
+          docker push ${{ secrets.DOCKER_NAME }}/searcher:latest
+          docker push ${{ secrets.DOCKER_NAME }}/sync:latest
+          docker push ${{ secrets.DOCKER_NAME }}/worker:latest
+          docker push ${{ secrets.DOCKER_NAME }}/ws-account-worker:latest
+          docker push ${{ secrets.DOCKER_NAME }}/ws-subscription-worker:latest
