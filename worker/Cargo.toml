@@ -10,7 +10,15 @@ fixed = "=1.28.0"
 serde_json = "1.0.132"
 serde = { version = "1.0.215", features = ["derive"] }
 tokio = { version = "1.44.2", features = ["full"] }
+jupiter-swap-api-client = { git = "https://github.com/touchmeangel/jupiter-swap-api-client.git", package = "jupiter-swap-api-client" }
+solana-client = "^2"
 solana-pubkey = "^2"
+solana-keypair = "^2"
+solana-signer = "^2"
+solana-message = "^2"
+solana-instruction = "^2"
+solana-transaction = "^2"
+solana-compute-budget-interface = "^2"
 protocols = { path = "../protocols" }
 connections = { path = "../connections" }
 hostname = "0.4.2"

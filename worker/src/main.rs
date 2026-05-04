@@ -1,12 +1,20 @@
 mod config;
 
-use std::sync::Arc;
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use config::Config;
 use connections::{SubRedis, queue_keys};
 use fixed::types::I80F48;
+use jupiter_swap_api_client::build::BuildInstructionsResponse;
 use protocols::marginfi::{FeeState, Marginfi, MarginfiUser};
+use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig};
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_message::{AddressLookupTableAccount, VersionedMessage, v0};
 use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use solana_transaction::versioned::VersionedTransaction;
 use tokio::{signal, sync::Semaphore};
 
 #[tokio::main]
@@ -146,8 +154,6 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
     }
   }
 
-
-
   // 3VzSmqcYQaKcA8vFoqW5batNPNWVvqpVXtFmKHse7SUE
   // AiC3orMdwW2hG9Xhv53nktgDwq4cLkqLAfMcNQFoXWoJ
   // 2qD4c8Z4kFM8s629igaw9Rbc2DGx67bS2w2VawVAwaLd
@@ -162,6 +168,143 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   // susdabGDNbhrnCa6ncrYo81u4s9GM8ecK2UwMyZiq4X: 51.69141136818984$
 
   Ok(())
+}
+
+pub async fn build_liquidation_tx(
+  rpc: &RpcClient,
+  payer: &Keypair,
+  swap_responses: Vec<BuildInstructionsResponse>,
+) -> anyhow::Result<()> {
+  let (cu_price_ix, _) = swap_responses
+    .iter()
+    .flat_map(|s| s.compute_budget_instructions.iter())
+    .filter(|ix| {
+			ix.program_id == solana_compute_budget_interface::ID
+				&& ix.data.first() == Some(&3u8)
+    })
+    .filter_map(|ix| {
+			if ix.data.len() >= 9 {
+				Some((ix, u64::from_le_bytes(ix.data[1..9].try_into().ok()?)))
+			} else {
+				None
+			}
+    })
+    .max_by(|(_, cu_price_a), (_, cu_price_b)| Ord::cmp(cu_price_a, cu_price_b))
+    .unzip();
+
+  let lookup_tables: Vec<AddressLookupTableAccount> = swap_responses
+		.iter()
+		.flat_map(|s| {
+			s.addresses_by_lookup_table_address
+				.clone()
+				.unwrap_or_default()
+				.into_iter()
+		})
+		.fold(HashMap::new(), |mut map, (key, addresses)| {
+			map.entry(key).or_insert(addresses);
+			map
+		})
+		.into_iter()
+		.map(|(key, addresses)| AddressLookupTableAccount { key, addresses })
+		.collect();
+
+  let swap_instructions = build_swap_instructions(&swap_responses, cu_price_ix.map(|ix| ix.clone()));
+
+  let blockhash = rpc.get_latest_blockhash().await?;
+
+  let sim_instructions: Vec<Instruction> = std::iter::once(
+    ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
+  )
+  .chain(swap_instructions.clone())
+  .collect();
+
+  let sim_msg = v0::Message::try_compile(
+		&payer.pubkey(),
+		&sim_instructions,
+		&lookup_tables,
+		blockhash,
+  )?;
+
+  let sim_tx = VersionedTransaction::try_new(
+		VersionedMessage::V0(sim_msg),
+		&[payer],
+  )?;
+
+  let sim_result = rpc
+		.simulate_transaction_with_config(
+			&sim_tx,
+			RpcSimulateTransactionConfig {
+				replace_recent_blockhash: true, // don't need a fresh blockhash just for sim
+				commitment: Some(rpc.commitment()),
+				..Default::default()
+			},
+		)
+		.await?;
+
+  if let Some(err) = sim_result.value.err {
+    anyhow::bail!("simulation failed: {err:?}\nlogs: {:#?}", sim_result.value.logs);
+  }
+
+  let cu_consumed = sim_result
+		.value
+		.units_consumed
+		.ok_or_else(|| anyhow::anyhow!("simulation returned no units_consumed"))?;
+
+  println!("cu_limit: {}", cu_consumed);
+
+  Ok(())
+}
+
+fn build_swap_instructions(
+  swap_responses: &[BuildInstructionsResponse],
+  cu_price_ix: Option<Instruction>,
+) -> Vec<Instruction> {
+  let mut instructions = Vec::new();
+
+  if let Some(ix) = cu_price_ix {
+		instructions.push(ix);
+  }
+
+  let dedup_key = |ix: &Instruction| {
+		let writable: Vec<Pubkey> = ix.accounts
+			.iter()
+			.filter(|a| a.is_writable)
+			.map(|a| a.pubkey)
+			.collect();
+		(ix.program_id, writable)
+  };
+
+  let mut seen_setup = HashSet::new();
+  for swap in swap_responses {
+		for ix in &swap.setup_instructions {
+			if seen_setup.insert(dedup_key(ix)) {
+				instructions.push(ix.clone());
+			} else {
+				continue;
+			}
+		}
+  }
+
+  for swap in swap_responses {
+		instructions.push(swap.swap_instruction.clone());
+  }
+
+  let mut seen_cleanup = HashSet::new();
+  for swap in swap_responses {
+		if let Some(ix) = &swap.cleanup_instruction {
+			if seen_cleanup.insert(dedup_key(ix)) {
+				instructions.push(ix.clone());
+			} else {
+				continue;
+			}
+		}
+		instructions.extend(swap.other_instructions.clone());
+		if let Some(ix) = &swap.tip_instruction {
+			instructions.push(ix.clone());
+		}
+  }
+
+  instructions
 }
 
 // async fn liquidate()
