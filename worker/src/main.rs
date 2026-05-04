@@ -208,7 +208,7 @@ pub async fn build_liquidation_tx(
 		.map(|(key, addresses)| AddressLookupTableAccount { key, addresses })
 		.collect();
 
-  let swap_instructions = build_swap_instructions(&swap_responses, cu_price_ix.map(|ix| ix.clone()));
+  let swap_instructions = build_liquidation_instructions(&swap_responses, cu_price_ix.map(|ix| ix.clone()));
 
   let blockhash = rpc.get_latest_blockhash().await?;
 
@@ -255,7 +255,7 @@ pub async fn build_liquidation_tx(
   Ok(())
 }
 
-fn build_swap_instructions(
+fn build_liquidation_instructions(
   swap_responses: &[BuildInstructionsResponse],
   cu_price_ix: Option<Instruction>,
 ) -> Vec<Instruction> {
