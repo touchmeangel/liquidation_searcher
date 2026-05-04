@@ -51,6 +51,10 @@ impl Marginfi {
     anyhow::Ok(Self { pubsub, rpc_client, client, program })
   }
 
+	pub fn rpc_ref(&self) -> &RpcClient {
+		&self.rpc_client
+	}
+
   pub async fn get_all_accounts(&self) -> anyhow::Result<Vec<Pubkey>> {
     let filters = vec![
       RpcFilterType::Memcmp(Memcmp::new(
