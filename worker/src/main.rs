@@ -172,9 +172,12 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 
 pub async fn build_liquidation_tx(
   rpc: &RpcClient,
+	user: &MarginfiUser,
   payer: &Keypair,
   swap_responses: Vec<BuildInstructionsResponse>,
 ) -> anyhow::Result<()> {
+	let payer_pubkey = payer.pubkey();
+
   let (cu_price_ix, _) = swap_responses
     .iter()
     .flat_map(|s| s.compute_budget_instructions.iter())
@@ -208,7 +211,12 @@ pub async fn build_liquidation_tx(
 		.map(|(key, addresses)| AddressLookupTableAccount { key, addresses })
 		.collect();
 
-  let swap_instructions = build_liquidation_instructions(&swap_responses, cu_price_ix.map(|ix| ix.clone()));
+	let start_ix = user.start_liquidation_ix(payer_pubkey.clone());
+  let swap_instructions = build_liquidation_instructions(
+		&swap_responses,
+		cu_price_ix.map(|ix| ix.clone()),
+		start_ix
+	);
 
   let blockhash = rpc.get_latest_blockhash().await?;
 
@@ -219,7 +227,7 @@ pub async fn build_liquidation_tx(
   .collect();
 
   let sim_msg = v0::Message::try_compile(
-		&payer.pubkey(),
+		&payer_pubkey,
 		&sim_instructions,
 		&lookup_tables,
 		blockhash,
@@ -258,6 +266,7 @@ pub async fn build_liquidation_tx(
 fn build_liquidation_instructions(
   swap_responses: &[BuildInstructionsResponse],
   cu_price_ix: Option<Instruction>,
+	start_ix: Instruction,
 ) -> Vec<Instruction> {
   let mut instructions = Vec::new();
 
@@ -265,7 +274,7 @@ fn build_liquidation_instructions(
 		instructions.push(ix);
   }
 
-
+	instructions.push(start_ix);
 
   let dedup_key = |ix: &Instruction| {
 		let writable: Vec<Pubkey> = ix.accounts
