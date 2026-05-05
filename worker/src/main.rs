@@ -173,6 +173,7 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 pub async fn build_liquidation_tx(
   rpc: &RpcClient,
 	user: &MarginfiUser,
+	fee_state: &FeeState,
   payer: &Keypair,
   swap_responses: Vec<BuildInstructionsResponse>,
 ) -> anyhow::Result<()> {
@@ -212,10 +213,12 @@ pub async fn build_liquidation_tx(
 		.collect();
 
 	let start_ix = user.start_liquidation_ix(payer_pubkey.clone());
+	let end_ix = user.end_liquidation_ix(payer_pubkey.clone(), fee_state.global_fee_wallet);
   let swap_instructions = build_liquidation_instructions(
 		&swap_responses,
 		cu_price_ix.map(|ix| ix.clone()),
-		start_ix
+		start_ix,
+		end_ix
 	);
 
   let blockhash = rpc.get_latest_blockhash().await?;
@@ -267,6 +270,7 @@ fn build_liquidation_instructions(
   swap_responses: &[BuildInstructionsResponse],
   cu_price_ix: Option<Instruction>,
 	start_ix: Instruction,
+	end_ix: Instruction,
 ) -> Vec<Instruction> {
   let mut instructions = Vec::new();
 
@@ -314,6 +318,8 @@ fn build_liquidation_instructions(
 			instructions.push(ix.clone());
 		}
   }
+
+	instructions.push(end_ix);
 
   instructions
 }
