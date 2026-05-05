@@ -204,7 +204,7 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 		)
 		.collect();
 
-	let mut needed: HashMap<Pubkey, AssetNode> = bank_accounts
+	let needed: HashMap<Pubkey, AssetNode> = bank_accounts
 		.iter()
 		.filter(|b| !b.balance.is_empty(BalanceSide::Liabilities))
 		.filter_map(|b| 
