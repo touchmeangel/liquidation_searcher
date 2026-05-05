@@ -3,7 +3,7 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::{consts::MARGINFI_PROGRAM_ID, marginfi::{ix_discriminators}};
 
-fn make_start_liquidation_ix(marginfi_account: Pubkey, liquidation_record: Pubkey, liquidation_receiver: Pubkey, instruction_sysvar: Pubkey) -> Instruction {
+pub fn make_start_liquidation_ix(marginfi_account: Pubkey, liquidation_record: Pubkey, liquidation_receiver: Pubkey, instruction_sysvar: Pubkey) -> Instruction {
 	let accounts = vec![
 		AccountMeta::new(marginfi_account, false),
 		AccountMeta::new(liquidation_record, false),
