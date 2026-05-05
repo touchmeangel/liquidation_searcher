@@ -8,6 +8,7 @@ use crate::{marginfi::{RiskTier, types::{Balance, BalanceSide, Bank, EmodeConfig
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MarginfiUser {
+	pubkey: Pubkey,
   account: MarginfiAccount,
   bank_accounts: Vec<BankAccount>,
   emode_config: EmodeConfig
@@ -141,6 +142,7 @@ impl MarginfiUser {
         );
   
         Ok(Self {
+					pubkey: *pubkey,
           account,
           bank_accounts: banks,
           emode_config: reconciled_emode_config,
