@@ -102,6 +102,7 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   
   println!("{}$ to make, max {}$ (w: {}, l: {})", seizable, liability.checked_mul(fee_state.liquidation_max_fee.into()).unwrap_or(I80F48::ZERO), withdrawable_assets, liability);
 
+	let swaps = calculate_swap_pairs(&account, config.safety_margin)?;
 	// let mut tokens_to_swap = Vec::new();
   // let max_assets = liability
   //   + liability
@@ -187,7 +188,8 @@ pub struct SwapPair {
 	pub from_amount: I80F48,
 }
 
-pub fn calculate_swap_pairs(user: &MarginfiUser, bank_accounts: &[BankAccount], safety_margin: f64) -> anyhow::Result<Vec<SwapPair>> {
+pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::Result<Vec<SwapPair>> {
+	let bank_accounts = user.bank_accounts();
 	let mut available: HashMap<Pubkey, AssetNode> = bank_accounts
 		.iter()
 		.filter(|b| !b.balance.is_empty(BalanceSide::Assets) || !user.is_bank_withdrawable(*b))
