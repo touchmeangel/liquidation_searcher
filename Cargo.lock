@@ -3542,6 +3542,7 @@ dependencies = [
  "solana-pubsub-client",
  "solana-rpc-client",
  "solana-rpc-client-types",
+ "solana-sdk-ids 2.2.1",
  "solana-transaction-status-client-types",
  "static_assertions",
  "switchboard-on-demand",

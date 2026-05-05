@@ -1,10 +1,11 @@
 use anyhow::Context;
 use fixed::types::I80F48;
 use serde::{Deserialize, Serialize};
+use solana_instruction::Instruction;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
 
-use crate::{marginfi::{RiskTier, types::{Balance, BalanceSide, Bank, EmodeConfig, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}}, utils::parse_account};
+use crate::{marginfi::{RiskTier, instructions::make_start_liquidation_ix, types::{Balance, BalanceSide, Bank, EmodeConfig, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}}, utils::parse_account};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MarginfiUser {
@@ -260,6 +261,10 @@ impl MarginfiUser {
 
     Ok(maint < 0)
   }
+
+	pub fn start_liquidation_ix(&self, liquidation_receiver: Pubkey) -> Instruction {
+		make_start_liquidation_ix(self.pubkey.clone(), self.account.liquidation_record, liquidation_receiver)
+	}
 }
 
 #[derive(Serialize, Deserialize, Clone)]
