@@ -37,6 +37,9 @@ async fn start(config: Config) -> anyhow::Result<()> {
   let fee_state = Arc::new(marginfi.get_fee_state().await?);
   let liquidation_max_fee: I80F48 = fee_state.liquidation_max_fee.into();
   let liquidation_flat_sol_fee: I80F48 = fee_state.liquidation_flat_sol_fee.into();
+	if liquidation_flat_sol_fee < config.safety_margin - 1.0 {
+  	println!("SAFETY_MARGIN is to high, for correct calculations it must be lower than liquidation_max_fee = {}%", liquidation_max_fee.checked_mul(I80F48::from_num(100)).unwrap_or(I80F48::ZERO));
+	}
   println!("FeeState is currently defined as liquidation_max_fee = {}% liquidation_flat_sol_fee = {} SOL", liquidation_max_fee.checked_mul(I80F48::from_num(100)).unwrap_or(I80F48::ZERO), liquidation_flat_sol_fee.checked_div(I80F48::from_num(1_000_000_000)).unwrap_or(I80F48::ZERO));
 
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
