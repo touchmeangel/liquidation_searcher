@@ -6,6 +6,7 @@ pub struct Config {
   pub(crate) ws_url: String,
   pub(crate) pubsub_url: String,
   pub(crate) capacity: usize,
+  pub(crate) safety_margin: f64,
   pub(crate) asset_haircut: f64
 }
 
@@ -16,12 +17,14 @@ impl Config {
     let ws_url = std::env::var("WS_URL").context("\"WS_URL\" is required")?;
     let pubsub_url = std::env::var("PUBSUB_CONNECTION").context("\"PUBSUB_CONNECTION\" is required")?;
     let capacity = env_usize("CAPACITY", 1).context("invalid \"CAPACITY\" value")?;
+    let safety_margin = std::env::var("SAFETY_MARGIN").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.05);
     let asset_haircut = std::env::var("ASSET_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
     let config = Config {
       http_url,
       ws_url,
       pubsub_url,
       capacity,
+      safety_margin,
       asset_haircut,
     };
 
