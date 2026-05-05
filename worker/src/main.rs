@@ -92,14 +92,17 @@ async fn start(config: Config) -> anyhow::Result<()> {
 async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubkey: Pubkey, account: MarginfiUser) -> anyhow::Result<()> {
   println!("RECEIVED {}", pubkey);
   let withdrawable_assets = account.withdrawable_asset_value()?;
-  let liability = account.liability_value()?;
+	let liability = account.liability_value()?;
+	let liability_with_safety = liability.checked_mul(I80F48::from_num(config.safety_margin))
+		.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-  let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-  if seizable <= 0 {
-    println!("{} is deep in debt, not profitable to liquidate", pubkey);
+	if withdrawable_assets.checked_sub(liability_with_safety)
+	.ok_or(anyhow::anyhow!("Math error at {}", line!()))? <= 0 {
+		println!("{} is deep in debt, not profitable to liquidate", pubkey);
     return anyhow::Ok(());
   }
   
+	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
   println!("{}$ to make, max {}$ (w: {}, l: {})", seizable, liability.checked_mul(fee_state.liquidation_max_fee.into()).unwrap_or(I80F48::ZERO), withdrawable_assets, liability);
 
 	let swaps = calculate_swap_pairs(&account, config.safety_margin)?;
