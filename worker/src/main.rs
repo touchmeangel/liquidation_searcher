@@ -97,7 +97,7 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 		.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
 	if withdrawable_assets.checked_sub(liability_with_safety)
-	.ok_or(anyhow::anyhow!("Math error at {}", line!()))? <= 0 {
+		.ok_or(anyhow::anyhow!("Math error at {}", line!()))? <= 0 {
 		println!("{} is deep in debt, not profitable to liquidate", pubkey);
     return anyhow::Ok(());
   }
