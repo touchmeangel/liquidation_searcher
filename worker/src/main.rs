@@ -6,7 +6,7 @@ use config::Config;
 use connections::{SubRedis, queue_keys};
 use fixed::types::I80F48;
 use jupiter_swap_api_client::build::BuildInstructionsResponse;
-use protocols::marginfi::{FeeState, Marginfi, MarginfiUser};
+use protocols::marginfi::{BalanceSide, BankAccount, FeeState, Marginfi, MarginfiUser};
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
@@ -101,58 +101,61 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   }
   
   println!("{}$ to make, max {}$ (w: {}, l: {})", seizable, liability.checked_mul(fee_state.liquidation_max_fee.into()).unwrap_or(I80F48::ZERO), withdrawable_assets, liability);
-  let mut tokens_to_swap = Vec::new();
-  let max_assets = liability
-    + liability
-      .checked_mul(fee_state.liquidation_max_fee.into())
-      .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-  let haircut = I80F48::from_num(config.asset_haircut);
 
-  let assets_needed = max_assets
-    .checked_mul(haircut)
-    .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+	// let mut tokens_to_swap = Vec::new();
+  // let max_assets = liability
+  //   + liability
+  //     .checked_mul(fee_state.liquidation_max_fee.into())
+  //     .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+  // let haircut = I80F48::from_num(config.asset_haircut);
 
-  let mut assets_left = assets_needed;
-  let mut banks_with_value: Vec<_> = account
-    .bank_accounts()
-    .iter()
-    .map(|bank| -> anyhow::Result<_> {
-      let value = bank.asset_value()?;
-      Ok((bank, value))
-    })
-    .collect::<anyhow::Result<Vec<_>>>()?;
+  // let assets_needed = max_assets
+  //   .checked_mul(haircut)
+  //   .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-  banks_with_value.sort_unstable_by(|(_, a), (_, b)| {
-    b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
-  });
+  // let mut assets_left = assets_needed;
+  // let mut banks_with_value: Vec<_> = account
+  //   .bank_accounts()
+  //   .iter()
+  //   .map(|bank| -> anyhow::Result<_> {
+  //     let value = bank.asset_value()?;
+  //     Ok((bank, value))
+  //   })
+  //   .collect::<anyhow::Result<Vec<_>>>()?;
+
+  // banks_with_value.sort_unstable_by(|(_, a), (_, b)| {
+  //   b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+  // });
   
-  for (bank, asset_value) in banks_with_value {
-    if asset_value <= I80F48::ZERO {
-      continue;
-    }
+  // for (bank, asset_value) in banks_with_value {
+  //   if asset_value <= I80F48::ZERO {
+  //     continue;
+  //   }
 
-    if asset_value > assets_left {
-      let ratio = assets_left
-        .checked_div(asset_value)
-        .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-      let asset_shares: I80F48 = bank.balance.asset_shares.into();
-      let shares_to_add = asset_shares
-        .checked_mul(ratio)
-        .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+  //   if asset_value > assets_left {
+  //     let ratio = assets_left
+  //       .checked_div(asset_value)
+  //       .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+  //     let asset_shares: I80F48 = bank.balance.asset_shares.into();
+  //     let shares_to_add = asset_shares
+  //       .checked_mul(ratio)
+  //       .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-      tokens_to_swap.push((bank.bank.mint, shares_to_add));
-      break;
-    }
+  //     tokens_to_swap.push((bank.bank.mint, shares_to_add));
+  //     break;
+  //   }
 
-    tokens_to_swap.push((bank.bank.mint, bank.balance.asset_shares.into()));
-    assets_left = assets_left
-      .checked_sub(asset_value)
-      .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+  //   tokens_to_swap.push((bank.bank.mint, bank.balance.asset_shares.into()));
+  //   assets_left = assets_left
+  //     .checked_sub(asset_value)
+  //     .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-    if assets_left == I80F48::ZERO {
-      break;
-    }
-  }
+  //   if assets_left == I80F48::ZERO {
+  //     break;
+  //   }
+  // }
+
+
 
   // 3VzSmqcYQaKcA8vFoqW5batNPNWVvqpVXtFmKHse7SUE
   // AiC3orMdwW2hG9Xhv53nktgDwq4cLkqLAfMcNQFoXWoJ
@@ -168,6 +171,134 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   // susdabGDNbhrnCa6ncrYo81u4s9GM8ecK2UwMyZiq4X: 51.69141136818984$
 
   Ok(())
+}
+
+#[derive(Clone)]
+pub struct AssetNode {
+	pub bank: BankAccount,
+	pub amount: I80F48,
+	pub usd_value: I80F48
+}
+
+#[derive(Debug, Clone)]
+pub struct SwapPair {
+	pub from_mint: Pubkey,
+	pub to_mint: Pubkey,
+	pub from_amount: I80F48,
+}
+
+pub fn calculate_swap_pairs(user: &MarginfiUser, bank_accounts: &[BankAccount], safety_margin: f64) -> anyhow::Result<Vec<SwapPair>> {
+	let mut available: HashMap<Pubkey, AssetNode> = bank_accounts
+		.iter()
+		.filter(|b| !b.balance.is_empty(BalanceSide::Assets) || !user.is_bank_withdrawable(*b))
+		.filter_map(|b| 
+			Some(
+				(b.bank.mint.clone(), AssetNode {
+					bank: b.clone(),
+					amount: b.balance.asset_shares.into(),
+					usd_value: b.asset_value().ok()?
+				})
+			)
+		)
+		.collect();
+
+	let mut needed: HashMap<Pubkey, AssetNode> = bank_accounts
+		.iter()
+		.filter(|b| !b.balance.is_empty(BalanceSide::Liabilities))
+		.filter_map(|b| 
+			Some(
+				(b.bank.mint.clone(), AssetNode {
+					bank: b.clone(),
+					amount: b.balance.liability_shares.into(),
+					usd_value: b.liability_value().ok()?
+				})
+			)
+		)
+		.collect();
+
+	let mut swaps = Vec::new();
+
+	for (mint, needed_bank) in needed.iter() {
+		if let Some(available_bank) = available.get_mut(mint) {
+			let amount_to_use = needed_bank.amount.min(available_bank.amount);
+			
+			if amount_to_use > 0.0 {
+				swaps.push(SwapPair {
+					from_mint: mint.clone(),
+					to_mint: mint.clone(),
+					from_amount: amount_to_use,
+				});
+				
+				let unit_price = available_bank.usd_value / available_bank.amount;
+				available_bank.amount -= amount_to_use;
+				available_bank.usd_value = available_bank.amount * unit_price;
+			}
+		}
+	}
+
+	for (needed_asset_mint, needed_asset) in needed.iter() {
+		let already_covered = swaps.iter()
+			.filter(|s| s.to_mint == *needed_asset_mint && s.from_mint == *needed_asset_mint)
+			.map(|s| s.from_amount)
+			.sum::<I80F48>();
+		
+		let remaining_needed_amount = needed_asset.amount - already_covered;
+		
+		if remaining_needed_amount <= 0.0 {
+			continue;
+		}
+		
+		let unit_price = if needed_asset.amount > 0.0 {
+			needed_asset.usd_value / needed_asset.amount
+		} else {
+			continue;
+		};
+		let usd_value_needed = remaining_needed_amount * unit_price * I80F48::from_num(safety_margin);
+		
+		let mut sorted_available: Vec<_> = available
+			.iter()
+			.filter(|(k, v)| *k != needed_asset_mint && v.usd_value > 0.0)
+			.map(|(k, v)| (k.clone(), v.clone()))
+			.collect();
+		sorted_available.sort_by(|a, b| b.1.usd_value.partial_cmp(&a.1.usd_value).unwrap());
+		
+		let mut remaining_value = usd_value_needed;
+		
+		for (available_asset_mint, _) in sorted_available {
+			if remaining_value <= 0.0 {
+				break;
+			}
+			
+			let available_asset = available.get_mut(&available_asset_mint).unwrap();
+			
+			if available_asset.usd_value <= 0.0 || available_asset.amount <= 0.0 {
+				continue;
+			}
+			
+			let value_to_use = remaining_value.min(available_asset.usd_value);
+			let unit_price = available_asset.usd_value / available_asset.amount;
+			let amount_to_swap = value_to_use / unit_price;
+			
+			swaps.push(SwapPair {
+				from_mint: available_asset_mint,
+				to_mint: needed_asset_mint.clone(),
+				from_amount: amount_to_swap,
+			});
+			
+			available_asset.amount -= amount_to_swap;
+			available_asset.usd_value -= value_to_use;
+			remaining_value -= value_to_use;
+		}
+		
+		if remaining_value > 0.01 {
+			anyhow::bail!(
+				"Insufficient funds to cover {} (${:.2} short)",
+				needed_asset_mint, remaining_value
+			);
+		}
+	}
+
+	Ok(Vec::new())
 }
 
 pub async fn build_liquidation_tx(

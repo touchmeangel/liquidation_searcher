@@ -210,14 +210,7 @@ impl MarginfiUser {
   pub fn withdrawable_asset_value(&self) -> anyhow::Result<I80F48> {
     let total_asset_value: I80F48 = self.bank_accounts.iter()
       .try_fold(I80F48::ZERO, |acc, bank_account| {
-        let bank_asset_weight: I80F48 = bank_account.bank.config.asset_weight_maint.into();
-        let asset_weight: I80F48 = if let Some(emode_entry) = self.emode_config.find_with_tag(bank_account.bank.emode.emode_tag) {
-          let emode_weight = I80F48::from(emode_entry.asset_weight_maint);
-          std::cmp::max(bank_asset_weight, emode_weight)
-        } else {
-          bank_asset_weight
-        };
-        if bank_account.bank.config.risk_tier.validate() == Ok(RiskTier::Isolated) && asset_weight == 0 {
+				if !self.is_bank_withdrawable(bank_account) {
           return anyhow::Ok(acc);
         }
         let asset_value = bank_account.asset_value()?;
@@ -227,6 +220,21 @@ impl MarginfiUser {
 
     anyhow::Ok(total_asset_value)
   }
+
+	pub fn is_bank_withdrawable(&self, bank_account: &BankAccount) -> bool {
+		let bank_asset_weight: I80F48 = bank_account.bank.config.asset_weight_maint.into();
+		let asset_weight: I80F48 = if let Some(emode_entry) = self.emode_config.find_with_tag(bank_account.bank.emode.emode_tag) {
+			let emode_weight = I80F48::from(emode_entry.asset_weight_maint);
+			std::cmp::max(bank_asset_weight, emode_weight)
+		} else {
+			bank_asset_weight
+		};
+		if bank_account.bank.config.risk_tier.validate() == Ok(RiskTier::Isolated) && asset_weight == 0 {
+			return false;
+		}
+
+		true
+	}
 
   pub fn maintenance(&self) -> anyhow::Result<I80F48> {
     let mut total_asset_value: I80F48 = I80F48::ZERO;
