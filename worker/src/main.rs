@@ -110,16 +110,18 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   println!("{}$ to make, max {}$ (w: {}, l: {})", seizable, liability.checked_mul(fee_state.liquidation_max_fee.into()).unwrap_or(I80F48::ZERO), withdrawable_assets, liability);
 
 	let swaps = calculate_swap_pairs(&account, config.safety_margin)?;
-	// let mut tokens_to_swap = Vec::new();
-  // let max_assets = liability
-  //   + liability
-  //     .checked_mul(fee_state.liquidation_max_fee.into())
-  //     .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-  // let haircut = I80F48::from_num(config.asset_haircut);
+	let max_assets = liability
+		+ liability
+			.checked_mul(fee_state.liquidation_max_fee.into())
+			.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-  // let assets_needed = max_assets
-  //   .checked_mul(haircut)
-  //   .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+	let haircut = I80F48::from_num(config.asset_haircut);
+
+	let assets_needed = max_assets
+		.checked_mul(haircut)
+		.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+
+	let withdrawals = select_assets_to_withdraw(&account, &swaps, assets_needed)?;
 
   // let mut assets_left = assets_needed;
   // let mut banks_with_value: Vec<_> = account
@@ -181,23 +183,9 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   Ok(())
 }
 
-#[derive(Clone)]
-pub struct AssetNode {
-	pub bank: BankAccount,
-	pub amount: I80F48,
-	pub usd_value: I80F48
-}
-
-#[derive(Debug, Clone)]
-pub struct SwapPair {
-	pub from_mint: Pubkey,
-	pub to_mint: Pubkey,
-	pub from_amount: I80F48,
-}
-
-pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::Result<Vec<SwapPair>> {
+fn build_available_assets_map(user: &MarginfiUser) -> HashMap<Pubkey, AssetNode> {
 	let bank_accounts = user.bank_accounts();
-	let mut available: HashMap<Pubkey, AssetNode> = bank_accounts
+	let available: HashMap<Pubkey, AssetNode> = bank_accounts
 		.iter()
 		.filter(|b| !b.balance.is_empty(BalanceSide::Assets) || !user.is_bank_withdrawable(*b))
 		.filter_map(|b| 
@@ -210,6 +198,110 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 			)
 		)
 		.collect();
+
+	available
+}
+
+#[derive(Debug, Clone)]
+struct AssetToWithdraw {
+	pub mint: Pubkey,
+	pub amount: I80F48,
+	pub amount_usd: I80F48,
+}
+
+pub fn select_assets_to_withdraw(
+	user: &MarginfiUser,
+	swaps: &[SwapPair],
+	target_usd: I80F48,
+) -> anyhow::Result<Vec<AssetToWithdraw>> {
+	let available = build_available_assets_map(&user);
+	let mut swap_totals: HashMap<Pubkey, (I80F48, I80F48)> = HashMap::new();
+	
+	for swap in swaps {
+		let entry = swap_totals.entry(swap.from_mint).or_insert((I80F48::ZERO, I80F48::ZERO));
+		entry.0 = entry.0.checked_add(swap.from_amount)
+			.ok_or(anyhow::anyhow!("Math error: amount overflow"))?;
+		entry.1 = entry.1.checked_add(swap.from_amount_usd)
+			.ok_or(anyhow::anyhow!("Math error: USD overflow"))?;
+	}
+	
+	let mut candidates: Vec<AssetToWithdraw> = Vec::new();
+	for (mint, (total_amount, total_usd)) in swap_totals {
+		let asset_node = available.get(&mint)
+			.ok_or(anyhow::anyhow!("Asset {} not found in available balances", mint))?;
+		
+		if total_usd > asset_node.usd_value {
+			return Err(anyhow::anyhow!(
+				"Swap requires {} USD of {}, but only {} USD available",
+				total_usd,
+				mint,
+				asset_node.usd_value
+			));
+		}
+		
+		candidates.push(AssetToWithdraw {
+			mint,
+			amount: total_amount,
+			amount_usd: total_usd,
+		});
+	}
+	
+	candidates.sort_by(|a, b| b.amount_usd.cmp(&a.amount_usd));
+	let mut selected = Vec::new();
+	let mut accumulated_usd = I80F48::ZERO;
+	
+	for mut candidate in candidates {
+		let remaining_needed = target_usd.checked_sub(accumulated_usd)
+			.ok_or(anyhow::anyhow!("Math error: subtraction overflow"))?;
+		
+		if remaining_needed <= I80F48::ZERO {
+			break;
+		}
+		
+		let asset_node = available.get(&candidate.mint).unwrap(); // Safe: we validated earlier
+		let max_additional_usd = asset_node.usd_value.checked_sub(candidate.amount_usd)
+			.ok_or(anyhow::anyhow!("Math error: max additional overflow"))?;
+		
+		if max_additional_usd > I80F48::ZERO && remaining_needed > candidate.amount_usd {
+			let additional_usd = max_additional_usd.min(remaining_needed - candidate.amount_usd);
+				
+			let price = candidate.amount_usd.checked_div(candidate.amount)
+				.ok_or(anyhow::anyhow!("Math error: price calculation"))?;
+			let additional_amount = additional_usd.checked_div(price)
+				.ok_or(anyhow::anyhow!("Math error: amount calculation"))?;
+			
+			candidate.amount = candidate.amount.checked_add(additional_amount)
+				.ok_or(anyhow::anyhow!("Math error: amount overflow"))?;
+			candidate.amount_usd = candidate.amount_usd.checked_add(additional_usd)
+				.ok_or(anyhow::anyhow!("Math error: USD overflow"))?;
+		}
+		
+		accumulated_usd = accumulated_usd.checked_add(candidate.amount_usd)
+			.ok_or(anyhow::anyhow!("Math error: accumulated USD overflow"))?;
+		selected.push(candidate);
+	}
+	
+	Ok(selected)
+}
+
+#[derive(Clone)]
+pub struct AssetNode {
+	pub bank: BankAccount,
+	pub amount: I80F48,
+	pub usd_value: I80F48
+}
+
+#[derive(Debug, Clone)]
+pub struct SwapPair {
+	pub from_mint: Pubkey,
+	pub to_mint: Pubkey,
+	pub from_amount: I80F48,
+	pub from_amount_usd: I80F48
+}
+
+pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::Result<Vec<SwapPair>> {
+	let mut available = build_available_assets_map(&user);
+	let bank_accounts = user.bank_accounts();
 
 	let needed: HashMap<Pubkey, AssetNode> = bank_accounts
 		.iter()
@@ -232,13 +324,15 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 			let amount_to_use = needed_bank.amount.min(available_bank.amount);
 			
 			if amount_to_use > 0.0 {
+				let unit_price = available_bank.usd_value / available_bank.amount;
+
 				swaps.push(SwapPair {
 					from_mint: mint.clone(),
 					to_mint: mint.clone(),
 					from_amount: amount_to_use,
+					from_amount_usd: amount_to_use * unit_price
 				});
 				
-				let unit_price = available_bank.usd_value / available_bank.amount;
 				available_bank.amount -= amount_to_use;
 				available_bank.usd_value = available_bank.amount * unit_price;
 			}
@@ -292,6 +386,7 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 				from_mint: available_asset_mint,
 				to_mint: needed_asset_mint.clone(),
 				from_amount: amount_to_swap,
+				from_amount_usd: amount_to_swap * unit_price
 			});
 			
 			available_asset.amount -= amount_to_swap;
