@@ -5,7 +5,7 @@ use solana_instruction::Instruction;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
 
-use crate::{marginfi::{RiskTier, instructions::{make_end_liquidation_ix, make_start_liquidation_ix}, types::{Balance, BalanceSide, Bank, EmodeConfig, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}}, utils::parse_account};
+use crate::{marginfi::{RiskTier, instructions::{make_end_liquidation_ix, make_start_liquidation_ix, make_withdraw_ix}, types::{Balance, BalanceSide, Bank, EmodeConfig, MarginfiAccount, OraclePriceFeedAdapter, OraclePriceFeedAdapterConfig, OraclePriceType, PriceAdapter, reconcile_emode_configs}}, utils::parse_account};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MarginfiUser {
@@ -276,6 +276,28 @@ impl MarginfiUser {
 
 	pub fn end_liquidation_ix(&self, liquidation_receiver: Pubkey, global_fee_wallet: Pubkey) -> Instruction {
 		make_end_liquidation_ix(self.pubkey.clone(), self.account.liquidation_record, liquidation_receiver, global_fee_wallet)
+	}
+
+	pub fn withdraw_ix(
+		&self,
+		authority: Pubkey,
+		bank_account: &BankAccount,
+		destination_token_account: Pubkey,
+		token_program: Pubkey,
+		amount: I80F48,
+		withdraw_all: Option<bool>
+	) -> Instruction {
+		make_withdraw_ix(
+			self.account.group,
+			self.pubkey,
+			authority,
+			bank_account.balance.bank_pk,
+			destination_token_account,
+			bank_account.bank.liquidity_vault,
+			token_program,
+			amount.to_num(),
+			withdraw_all
+		)
 	}
 }
 
