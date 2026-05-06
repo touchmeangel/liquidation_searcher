@@ -410,6 +410,7 @@ pub async fn build_liquidation_tx(
 	user: &MarginfiUser,
 	fee_state: &FeeState,
   payer: &Keypair,
+	assets_to_withdraw: Vec<AssetToWithdraw>,
   swap_responses: Vec<BuildInstructionsResponse>,
 ) -> anyhow::Result<()> {
 	let payer_pubkey = payer.pubkey();
@@ -452,6 +453,7 @@ pub async fn build_liquidation_tx(
   let swap_instructions = build_liquidation_instructions(
 		&swap_responses,
 		cu_price_ix.map(|ix| ix.clone()),
+		assets_to_withdraw,
 		start_ix,
 		end_ix
 	);
@@ -504,6 +506,7 @@ pub async fn build_liquidation_tx(
 fn build_liquidation_instructions(
   swap_responses: &[BuildInstructionsResponse],
   cu_price_ix: Option<Instruction>,
+	assets_to_withdraw: Vec<AssetToWithdraw>,
 	start_ix: Instruction,
 	end_ix: Instruction,
 ) -> Vec<Instruction> {
