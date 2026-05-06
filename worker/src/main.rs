@@ -123,50 +123,6 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 
 	let withdrawals = select_assets_to_withdraw(&account, &swaps, assets_needed)?;
 
-  // let mut assets_left = assets_needed;
-  // let mut banks_with_value: Vec<_> = account
-  //   .bank_accounts()
-  //   .iter()
-  //   .map(|bank| -> anyhow::Result<_> {
-  //     let value = bank.asset_value()?;
-  //     Ok((bank, value))
-  //   })
-  //   .collect::<anyhow::Result<Vec<_>>>()?;
-
-  // banks_with_value.sort_unstable_by(|(_, a), (_, b)| {
-  //   b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
-  // });
-  
-  // for (bank, asset_value) in banks_with_value {
-  //   if asset_value <= I80F48::ZERO {
-  //     continue;
-  //   }
-
-  //   if asset_value > assets_left {
-  //     let ratio = assets_left
-  //       .checked_div(asset_value)
-  //       .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-  //     let asset_shares: I80F48 = bank.balance.asset_shares.into();
-  //     let shares_to_add = asset_shares
-  //       .checked_mul(ratio)
-  //       .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-
-  //     tokens_to_swap.push((bank.bank.mint, shares_to_add));
-  //     break;
-  //   }
-
-  //   tokens_to_swap.push((bank.bank.mint, bank.balance.asset_shares.into()));
-  //   assets_left = assets_left
-  //     .checked_sub(asset_value)
-  //     .ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-
-  //   if assets_left == I80F48::ZERO {
-  //     break;
-  //   }
-  // }
-
-
-
   // 3VzSmqcYQaKcA8vFoqW5batNPNWVvqpVXtFmKHse7SUE
   // AiC3orMdwW2hG9Xhv53nktgDwq4cLkqLAfMcNQFoXWoJ
   // 2qD4c8Z4kFM8s629igaw9Rbc2DGx67bS2w2VawVAwaLd
