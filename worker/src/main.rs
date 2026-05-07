@@ -417,13 +417,13 @@ pub async fn build_liquidation_tx(
 	fee_state: &FeeState,
   payer: &Keypair,
 	assets_to_withdraw: Vec<(AssetToWithdraw, Account)>,
-  swap_responses: Vec<BuildInstructionsResponse>,
+  swap_responses: Vec<(BuildInstructionsResponse, SwapPair, I80F48)>,
 ) -> anyhow::Result<()> {
 	let payer_pubkey = payer.pubkey();
 
   let (cu_price_ix, _) = swap_responses
     .iter()
-    .flat_map(|s| s.compute_budget_instructions.iter())
+    .flat_map(|(s, _, _)| s.compute_budget_instructions.iter())
     .filter(|ix| {
 			ix.program_id == solana_compute_budget_interface::ID
 				&& ix.data.first() == Some(&3u8)
@@ -440,7 +440,7 @@ pub async fn build_liquidation_tx(
 
   let lookup_tables: Vec<AddressLookupTableAccount> = swap_responses
 		.iter()
-		.flat_map(|s| {
+		.flat_map(|(s, _, _)| {
 			s.addresses_by_lookup_table_address
 				.clone()
 				.unwrap_or_default()
@@ -511,7 +511,7 @@ pub async fn build_liquidation_tx(
 fn build_liquidation_instructions(
 	user: &MarginfiUser,
 	payer: &Keypair,
-  swap_responses: &[BuildInstructionsResponse],
+  swap_responses: &[(BuildInstructionsResponse, SwapPair, I80F48)],
   cu_price_ix: Option<Instruction>,
 	assets_to_withdraw: Vec<(AssetToWithdraw, Account)>,
 	global_fee_wallet: Pubkey
@@ -564,7 +564,7 @@ fn build_liquidation_instructions(
   };
 
   let mut seen_setup = HashSet::new();
-  for swap in swap_responses {
+  for (swap, _, _) in swap_responses {
 		for ix in &swap.setup_instructions {
 			if seen_setup.insert(dedup_key(ix)) {
 				instructions.push(ix.clone());
@@ -574,12 +574,12 @@ fn build_liquidation_instructions(
 		}
   }
 
-  for swap in swap_responses {
+  for (swap, _, _) in swap_responses {
 		instructions.push(swap.swap_instruction.clone());
   }
 
   let mut seen_cleanup = HashSet::new();
-  for swap in swap_responses {
+  for (swap, _, _) in swap_responses {
 		if let Some(ix) = &swap.cleanup_instruction {
 			if seen_cleanup.insert(dedup_key(ix)) {
 				instructions.push(ix.clone());
