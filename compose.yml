@@ -28,6 +28,7 @@ services:
       - CAPACITY=${CAPACITY}
       - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
       - ASSET_HAIRCUT=${ASSET_HAIRCUT}
+      - JUP_SWAP_API=${JUP_SWAP_API}
     depends_on:
       - redis
   ws_account_worker:
