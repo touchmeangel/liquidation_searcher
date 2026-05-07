@@ -27,7 +27,6 @@ services:
       - WS_URL=${WS_URL}
       - CAPACITY=${CAPACITY}
       - PUBSUB_CONNECTION=redis://:${REDIS_PASSWORD}@redis:6379
-      - SAFETY_MARGIN=${SAFETY_MARGIN}
       - ASSET_HAIRCUT=${ASSET_HAIRCUT}
     depends_on:
       - redis
