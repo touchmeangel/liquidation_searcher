@@ -5,7 +5,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 use config::Config;
 use connections::{SubRedis, queue_keys};
 use fixed::types::I80F48;
-use jupiter_swap_api_client::build::BuildInstructionsResponse;
+use jupiter_swap_api_client::{JupiterSwapApiClient, build::{BuildInstructionsResponse, BuildRequest, QuoteMode}};
 use protocols::marginfi::{BalanceSide, BankAccount, FeeState, Marginfi, MarginfiUser};
 use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig};
@@ -32,7 +32,10 @@ async fn main() {
 }
 
 async fn start(config: Config) -> anyhow::Result<()> {
-  let marginfi = Arc::new(Marginfi::new(config.http_url.clone(), config.ws_url.clone()).await?);
+	let payer = Arc::new(config.payer);
+
+  let jupiter_swap_api_client = Arc::new(JupiterSwapApiClient::new(config.jup_swap_api_v2.clone()));
+  let marginfi = Arc::new(Marginfi::new(config.http_url, config.ws_url).await?);
   let fee_state = Arc::new(marginfi.get_fee_state().await?);
   let liquidation_max_fee: I80F48 = fee_state.liquidation_max_fee.into();
   let liquidation_flat_sol_fee: I80F48 = fee_state.liquidation_flat_sol_fee.into();
@@ -68,13 +71,15 @@ async fn start(config: Config) -> anyhow::Result<()> {
         };
         
         let permit = semaphore.clone();
-        let config_clone = config.clone();
+        let haircut = config.asset_haircut;
+        let payer_clone = Arc::clone(&payer);
+        let jup_clone = Arc::clone(&jupiter_swap_api_client);
         let marginfi_clone = Arc::clone(&marginfi);
         let fee_state_clone = Arc::clone(&fee_state);
         tokio::spawn(async move {
           let _guard = permit.acquire().await.unwrap();
 
-          if let Err(err) = handle(config_clone, &marginfi_clone, &fee_state_clone, pubkey, account).await {
+          if let Err(err) = handle(&marginfi_clone, jup_clone, payer_clone, &fee_state_clone, pubkey, account, haircut).await {
             println!("error liquidating accounts: {}", err);
           };
         });
@@ -89,7 +94,15 @@ async fn start(config: Config) -> anyhow::Result<()> {
   Ok(())
 }
 
-async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubkey: Pubkey, account: MarginfiUser) -> anyhow::Result<()> {
+async fn handle(
+	marginfi: &Marginfi,
+	jup_client: Arc<JupiterSwapApiClient>,
+	payer: Arc<Keypair>,
+	fee_state: &FeeState,
+	pubkey: Pubkey,
+	account: MarginfiUser,
+	asset_haircut: f64
+) -> anyhow::Result<()> {
   println!("RECEIVED {}", pubkey);
   let withdrawable_assets = account.withdrawable_asset_value()?;
 	let liability = account.liability_value()?;
@@ -111,18 +124,46 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   println!("{}$ to make, max {}$ (w: {}, l: {})", seizable, liability.checked_mul(fee_state.liquidation_max_fee.into()).unwrap_or(I80F48::ZERO), withdrawable_assets, liability);
 
 	let swaps = calculate_swap_pairs(&account)?;
-	let max_assets = liability
-		+ liability
+
+	let mut tasks = Vec::with_capacity(swaps.len());
+	for swap in swaps {
+		let quote_request = BuildRequest {
+			amount: swap.from_amount.to_num(),
+			input_mint: swap.from_mint,
+			output_mint: swap.to_mint,
+			taker: payer.pubkey(),
+			mode: Some(QuoteMode::Fast),
+			slippage_bps: Some(jupiter_swap_api_client::build::SlippageBps::Rtse),
+			..BuildRequest::default()
+		};
+
+		let jup_clone = Arc::clone(&jup_client);
+		tasks.push(tokio::spawn(async move {
+			(jup_clone.build(&quote_request).await, swap)
+		}));
+	}
+
+	let mut swaps = Vec::with_capacity(tasks.len());
+	let mut total_expected_output_usd = I80F48::ZERO;
+	for task in tasks {
+		let (result, pair) = task.await?;
+		let response = result?;
+		let unit_price = pair.from_amount_usd / pair.from_amount;
+		let expected_output = I80F48::from_num(response.out_amount) * I80F48::from_num(asset_haircut);
+		swaps.push((response, pair, expected_output));
+		total_expected_output_usd += expected_output * unit_price
+	}
+
+	let assets_needed = total_expected_output_usd
+		+ total_expected_output_usd
 			.checked_mul(fee_state.liquidation_max_fee.into())
 			.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-	let haircut = I80F48::from_num(config.asset_haircut);
-
-	let assets_needed = max_assets
-		.checked_mul(haircut)
-		.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
-
-	let assets_to_withdraw = select_assets_to_withdraw(&account, &swaps, assets_needed)?;
+	let assets_to_withdraw = select_assets_to_withdraw(
+		&account,
+		swaps.iter().map(|(_, pair, _)| pair).collect::<Vec<_>>(),
+		assets_needed
+	)?;
 
 	// let mint_pubkeys: Vec<Pubkey> = assets_to_withdraw.iter()
 	// 	.map(|a| a.mint)
@@ -175,7 +216,7 @@ pub struct AssetToWithdraw {
 
 pub fn select_assets_to_withdraw(
 	user: &MarginfiUser,
-	swaps: &[SwapPair],
+	swaps: Vec<&SwapPair>,
 	target_usd: I80F48,
 ) -> anyhow::Result<Vec<AssetToWithdraw>> {
 	let available = build_available_assets_map(&user);
@@ -295,7 +336,7 @@ pub fn calculate_swap_pairs(user: &MarginfiUser) -> anyhow::Result<Vec<SwapPair>
 					from_mint: mint.clone(),
 					to_mint: mint.clone(),
 					from_amount: amount_to_use,
-					from_amount_usd: amount_to_use * unit_price
+					from_amount_usd: amount_to_use * unit_price,
 				});
 				
 				available_bank.amount -= amount_to_use;
