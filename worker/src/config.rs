@@ -5,7 +5,7 @@ pub struct Config {
   pub(crate) http_url: String,
   pub(crate) ws_url: String,
   pub(crate) pubsub_url: String,
-	pub(crate) jup_swap_api: String,
+	pub(crate) jup_swap_api_v2: String,
   pub(crate) capacity: usize,
   pub(crate) asset_haircut: f64,
   pub(crate) asset_swap_haircut: f64,
@@ -17,7 +17,7 @@ impl Config {
     let http_url = std::env::var("HTTP_URL").context("\"HTTP_URL\" is required")?;
     let ws_url = std::env::var("WS_URL").context("\"WS_URL\" is required")?;
     let pubsub_url = std::env::var("PUBSUB_CONNECTION").context("\"PUBSUB_CONNECTION\" is required")?;
-    let jup_swap_api = std::env::var("JUP_SWAP_API").context("\"JUP_SWAP_API\" is required")?;
+    let jup_swap_api_v2 = std::env::var("JUP_SWAP_API_V2").context("\"JUP_SWAP_API_V2\" is required")?;
     let capacity = env_usize("CAPACITY", 1).context("invalid \"CAPACITY\" value")?;
     let asset_haircut = std::env::var("ASSET_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
     let asset_swap_haircut = std::env::var("ASSET_SWAP_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
@@ -25,7 +25,7 @@ impl Config {
       http_url,
       ws_url,
       pubsub_url,
-			jup_swap_api,
+			jup_swap_api_v2,
       capacity,
       asset_haircut,
       asset_swap_haircut
