@@ -6,7 +6,8 @@ pub struct Config {
   pub(crate) ws_url: String,
   pub(crate) pubsub_url: String,
   pub(crate) capacity: usize,
-  pub(crate) asset_haircut: f64
+  pub(crate) asset_haircut: f64,
+  pub(crate) asset_swap_haircut: f64
 }
 
 impl Config {
@@ -17,12 +18,14 @@ impl Config {
     let pubsub_url = std::env::var("PUBSUB_CONNECTION").context("\"PUBSUB_CONNECTION\" is required")?;
     let capacity = env_usize("CAPACITY", 1).context("invalid \"CAPACITY\" value")?;
     let asset_haircut = std::env::var("ASSET_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
+    let asset_swap_haircut = std::env::var("ASSET_SWAP_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
     let config = Config {
       http_url,
       ws_url,
       pubsub_url,
       capacity,
       asset_haircut,
+      asset_swap_haircut
     };
 
     Ok(config)
