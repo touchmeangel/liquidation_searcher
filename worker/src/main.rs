@@ -492,8 +492,8 @@ fn build_liquidation_instructions(
 		
 		instructions.push(
 			spl_associated_token_account::instruction::create_associated_token_account_idempotent(
-				payer,
-				payer,
+				&payer.pubkey(),
+				&payer.pubkey(),
 				&asset.mint,
 				&token_program,
 			)
