@@ -302,7 +302,8 @@ pub struct SwapPair {
 	pub from_mint: Pubkey,
 	pub to_mint: Pubkey,
 	pub from_amount: I80F48,
-	pub from_amount_usd: I80F48
+	pub from_amount_usd: I80F48,
+	pub to_bank_account: BankAccount
 }
 
 pub fn calculate_swap_pairs(user: &MarginfiUser) -> anyhow::Result<Vec<SwapPair>> {
@@ -337,6 +338,7 @@ pub fn calculate_swap_pairs(user: &MarginfiUser) -> anyhow::Result<Vec<SwapPair>
 					to_mint: mint.clone(),
 					from_amount: amount_to_use,
 					from_amount_usd: amount_to_use * unit_price,
+					to_bank_account: needed_bank.bank.clone()
 				});
 				
 				available_bank.amount -= amount_to_use;
@@ -392,7 +394,8 @@ pub fn calculate_swap_pairs(user: &MarginfiUser) -> anyhow::Result<Vec<SwapPair>
 				from_mint: available_asset_mint,
 				to_mint: needed_asset_mint.clone(),
 				from_amount: amount_to_swap,
-				from_amount_usd: amount_to_swap * unit_price
+				from_amount_usd: amount_to_swap * unit_price,
+				to_bank_account: needed_asset.bank.clone()
 			});
 			
 			available_asset.amount -= amount_to_swap;
@@ -582,10 +585,10 @@ fn build_liquidation_instructions(
 
 	let mut out_mint_grouped_outputs = HashMap::new();
 	for (pair, account, expected_output) in assets_to_repay {
-		out_mint_grouped_outputs.entry(pair.to_mint).or_insert((account, expected_output)).1 += expected_output;
+		out_mint_grouped_outputs.entry(pair.to_mint).or_insert((account, pair.to_bank_account, expected_output)).2 += expected_output;
 	}
 
-	for (mint, (mint_account, expected_output)) in out_mint_grouped_outputs {
+	for (mint, (mint_account, to_bank_account, expected_output)) in out_mint_grouped_outputs {
 		let token_program = mint_account.owner;
 		
 		let signer_token_account = get_associated_token_address_with_program_id(
@@ -596,7 +599,7 @@ fn build_liquidation_instructions(
 
 		instructions.push(user.repay_ix(
 			payer.pubkey(),
-			bank_account,
+			&to_bank_account,
 			signer_token_account,
 			token_program,
 			expected_output,
