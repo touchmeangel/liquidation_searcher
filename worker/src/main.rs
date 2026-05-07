@@ -109,8 +109,8 @@ async fn handle(
 	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
 	// TODO: use smart contract for better accuracy
-	// TODO: the liquidation will pass as long as health improves which means theres no need to repay the whole loan
-	// TODO: profitability checks
+	// TODO: the liquidation will pass as long as health improves which means theres no need to repay the whole loan !!! FIX SITUATIONS WHERE WHOLE LIQUIDATION FAILS BECAUSE OF ONE TOKEN
+	// TODO: profitability checks after simulation
 	// TODO:
 	// /// Liquidators can consume/close out the entire account with essentially no limits (e.g. regardless
 	// /// of liquidation bonus, etc) if it has net assets worth less than this amount in dollars. This
