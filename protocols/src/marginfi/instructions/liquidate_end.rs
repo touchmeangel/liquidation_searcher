@@ -1,6 +1,6 @@
 use solana_pubkey::Pubkey;
+use solana_system_interface::program;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_sdk_ids::system_program;
 
 use crate::{consts::MARGINFI_PROGRAM_ID, marginfi::{FEE_STATE_SEED, ix_discriminators}};
 
@@ -12,7 +12,7 @@ pub fn make_end_liquidation_ix(marginfi_account: Pubkey, liquidation_record: Pub
 		AccountMeta::new(liquidation_receiver, true),
 		AccountMeta::new(fee_state, false),
 		AccountMeta::new(global_fee_wallet, false),
-		AccountMeta::new_readonly(system_program::ID, false),
+		AccountMeta::new_readonly(program::ID, false),
 	];
 
 	let end_liquidation_ix = Instruction {

@@ -7,14 +7,13 @@ use connections::{SubRedis, queue_keys};
 use fixed::types::I80F48;
 use jupiter_swap_api_client::build::BuildInstructionsResponse;
 use protocols::marginfi::{BalanceSide, BankAccount, FeeState, Marginfi, MarginfiUser};
+use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
-use solana_message::{AddressLookupTableAccount, VersionedMessage, v0};
 use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{message::{AddressLookupTableAccount, VersionedMessage, v0}, signature::Keypair, signer::Signer, transaction::VersionedTransaction};
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use tokio::{signal, sync::Semaphore};
 
 #[tokio::main]
@@ -121,7 +120,13 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 		.checked_mul(haircut)
 		.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-	let withdrawals = select_assets_to_withdraw(&account, &swaps, assets_needed)?;
+	let assets_to_withdraw = select_assets_to_withdraw(&account, &swaps, assets_needed)?;
+
+	// let mint_pubkeys: Vec<Pubkey> = assets_to_withdraw.iter()
+	// 	.map(|a| a.mint)
+	// 	.collect();
+    
+	// let mint_accounts = rpc.get_multiple_accounts(&mint_pubkeys).await?;
 
   // 3VzSmqcYQaKcA8vFoqW5batNPNWVvqpVXtFmKHse7SUE
   // AiC3orMdwW2hG9Xhv53nktgDwq4cLkqLAfMcNQFoXWoJ
@@ -158,11 +163,12 @@ fn build_available_assets_map(user: &MarginfiUser) -> HashMap<Pubkey, AssetNode>
 	available
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AssetToWithdraw {
 	pub mint: Pubkey,
 	pub amount: I80F48,
 	pub amount_usd: I80F48,
+	pub bank: BankAccount
 }
 
 pub fn select_assets_to_withdraw(
@@ -196,6 +202,7 @@ pub fn select_assets_to_withdraw(
 		}
 		
 		candidates.push(AssetToWithdraw {
+			bank: asset_node.bank.clone(),
 			mint,
 			amount: total_amount,
 			amount_usd: total_usd,
@@ -247,7 +254,7 @@ pub struct AssetNode {
 	pub usd_value: I80F48
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SwapPair {
 	pub from_mint: Pubkey,
 	pub to_mint: Pubkey,
@@ -281,7 +288,7 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 			
 			if amount_to_use > 0.0 {
 				let unit_price = available_bank.usd_value / available_bank.amount;
-
+				
 				swaps.push(SwapPair {
 					from_mint: mint.clone(),
 					to_mint: mint.clone(),
@@ -362,11 +369,11 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 }
 
 pub async fn build_liquidation_tx(
-  rpc: &RpcClient,
+  rpc_client: &RpcClient,
 	user: &MarginfiUser,
 	fee_state: &FeeState,
   payer: &Keypair,
-	assets_to_withdraw: Vec<AssetToWithdraw>,
+	assets_to_withdraw: Vec<(AssetToWithdraw, Account)>,
   swap_responses: Vec<BuildInstructionsResponse>,
 ) -> anyhow::Result<()> {
 	let payer_pubkey = payer.pubkey();
@@ -404,17 +411,16 @@ pub async fn build_liquidation_tx(
 		.map(|(key, addresses)| AddressLookupTableAccount { key, addresses })
 		.collect();
 
-	let start_ix = user.start_liquidation_ix(payer_pubkey.clone());
-	let end_ix = user.end_liquidation_ix(payer_pubkey.clone(), fee_state.global_fee_wallet);
   let swap_instructions = build_liquidation_instructions(
+		user,
+		payer,
 		&swap_responses,
 		cu_price_ix.map(|ix| ix.clone()),
 		assets_to_withdraw,
-		start_ix,
-		end_ix
+		fee_state.global_fee_wallet
 	);
 
-  let blockhash = rpc.get_latest_blockhash().await?;
+  let blockhash = rpc_client.get_latest_blockhash().await?;
 
   let sim_instructions: Vec<Instruction> = std::iter::once(
     ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
@@ -434,12 +440,12 @@ pub async fn build_liquidation_tx(
 		&[payer],
   )?;
 
-  let sim_result = rpc
+  let sim_result = rpc_client
 		.simulate_transaction_with_config(
 			&sim_tx,
 			RpcSimulateTransactionConfig {
 				replace_recent_blockhash: true, // don't need a fresh blockhash just for sim
-				commitment: Some(rpc.commitment()),
+				commitment: Some(rpc_client.commitment()),
 				..Default::default()
 			},
 		)
@@ -460,11 +466,12 @@ pub async fn build_liquidation_tx(
 }
 
 fn build_liquidation_instructions(
+	user: &MarginfiUser,
+	payer: &Keypair,
   swap_responses: &[BuildInstructionsResponse],
   cu_price_ix: Option<Instruction>,
-	assets_to_withdraw: Vec<AssetToWithdraw>,
-	start_ix: Instruction,
-	end_ix: Instruction,
+	assets_to_withdraw: Vec<(AssetToWithdraw, Account)>,
+	global_fee_wallet: Pubkey
 ) -> Vec<Instruction> {
   let mut instructions = Vec::new();
 
@@ -472,7 +479,37 @@ fn build_liquidation_instructions(
 		instructions.push(ix);
   }
 
-	instructions.push(start_ix);
+	instructions.push(user.start_liquidation_ix(payer.pubkey()));
+
+	for (asset, mint_account) in assets_to_withdraw {
+		let token_program = mint_account.owner;
+		
+		let destination_token_account = get_associated_token_address_with_program_id(
+			&payer.pubkey(),
+			&asset.mint,
+			&token_program,
+		);
+		
+		instructions.push(
+			spl_associated_token_account::instruction::create_associated_token_account_idempotent(
+				payer,
+				payer,
+				&asset.mint,
+				&token_program,
+			)
+		);
+
+		instructions.push(
+			user.withdraw_ix(
+				payer.pubkey(),
+				&asset.bank,
+				destination_token_account,
+				token_program,
+				asset.amount,
+				Some(false)
+			)
+		);
+	}
 
   let dedup_key = |ix: &Instruction| {
 		let writable: Vec<Pubkey> = ix.accounts
@@ -513,7 +550,7 @@ fn build_liquidation_instructions(
 		}
   }
 
-	instructions.push(end_ix);
+	instructions.push(user.end_liquidation_ix(payer.pubkey(), global_fee_wallet));
 
   instructions
 }

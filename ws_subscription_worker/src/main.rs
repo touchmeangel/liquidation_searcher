@@ -8,15 +8,15 @@ use futures_util::StreamExt;
 use protocols::marginfi::{Bank, load_price_update_v2_checked_data};
 use protocols::utils::parse_account;
 use redis::aio::ConnectionManager;
+use solana_client::nonblocking::pubsub_client::PubsubClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::rpc_config::RpcAccountInfoConfig;
 use solana_pubkey::Pubkey;
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use tokio::signal;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use redis::AsyncTypedCommands;
 use solana_commitment_config::CommitmentConfig;
-use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
-use solana_rpc_client_types::config::RpcAccountInfoConfig;
 use uuid::Uuid;
 
 use crate::config::Config;

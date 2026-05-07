@@ -7,13 +7,15 @@ use connections::Redis;
 use futures_util::StreamExt;
 use protocols::{consts::MARGINFI_PROGRAM_ID, marginfi::{MARGINFI_ACCOUNT_SEED, MarginfiAccount, discriminators}, utils::parse_account};
 use redis::aio::ConnectionManager;
+use solana_client::nonblocking::pubsub_client::PubsubClient;
+use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+use solana_client::rpc_filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType};
+use solana_client::rpc_response::{Response, RpcKeyedAccount};
 use solana_pubkey::Pubkey;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use redis::AsyncTypedCommands;
 use solana_commitment_config::CommitmentConfig;
-use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
-use solana_rpc_client_types::{config::{RpcAccountInfoConfig, RpcProgramAccountsConfig}, filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType}, response::{Response, RpcKeyedAccount}};
 use tokio::time::{self, interval};
 
 use crate::config::Config;

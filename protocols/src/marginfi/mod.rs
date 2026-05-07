@@ -12,8 +12,11 @@ mod wrapped_i80f48;
 use anchor_lang::Discriminator;
 pub use errors::*;
 use events::*;
-use solana_account_decoder::UiDataSliceConfig;
-use solana_rpc_client_types::filter::{Memcmp, RpcFilterType};
+use solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig};
+use solana_client::nonblocking::pubsub_client::PubsubClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+use solana_client::rpc_filter::{MemcmpEncodedBytes, Memcmp, RpcFilterType};
 use wrapped_i80f48::*;
 pub use consts::*;
 pub use types::*;
@@ -24,9 +27,6 @@ use std::sync::Arc;
 
 use solana_pubkey::Pubkey;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
-use solana_rpc_client_types::config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
 use anchor_client::{Client, Cluster, Program};
 use anchor_client::solana_sdk::signature::Keypair;
 
@@ -59,14 +59,14 @@ impl Marginfi {
     let filters = vec![
       RpcFilterType::Memcmp(Memcmp::new(
         0,
-        solana_rpc_client_types::filter::MemcmpEncodedBytes::Bytes(Vec::from(MarginfiAccount::DISCRIMINATOR))
+        MemcmpEncodedBytes::Bytes(Vec::from(MarginfiAccount::DISCRIMINATOR))
       )),
     ];
 
     let config = RpcProgramAccountsConfig {
       filters: Some(filters),
       account_config: RpcAccountInfoConfig {
-        encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
+        encoding: Some(UiAccountEncoding::Base64),
         data_slice: Some(UiDataSliceConfig {
           offset: 0,
           length: 0,
