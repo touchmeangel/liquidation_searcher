@@ -5,7 +5,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 use config::Config;
 use connections::{SubRedis, queue_keys};
 use fixed::types::I80F48;
-use jupiter_swap_api_client::{JupiterSwapApiClient, build::{BuildInstructionsResponse, BuildRequest, QuoteMode}};
+use jupiter_swap_api_client::{JupiterSwapApiClient, build::{BuildInstructionsResponse, BuildRequest, QuoteMode}, swap};
 use protocols::marginfi::{BalanceSide, BankAccount, FeeState, Marginfi, MarginfiUser};
 use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig};
@@ -150,7 +150,7 @@ async fn handle(
 		let response = result?;
 		let unit_price = pair.from_amount_usd / pair.from_amount;
 		let expected_output = I80F48::from_num(response.out_amount) * I80F48::from_num(asset_haircut);
-		swaps.push((response, pair, expected_output));
+		swaps.push((response, (pair, expected_output)));
 		total_expected_output_usd += expected_output * unit_price
 	}
 
@@ -161,7 +161,7 @@ async fn handle(
 
 	let assets_to_withdraw = select_assets_to_withdraw(
 		&account,
-		swaps.iter().map(|(_, pair, _)| pair).collect::<Vec<_>>(),
+		swaps.iter().map(|(_, (pair, _))| pair).collect::<Vec<_>>(),
 		assets_needed
 	)?;
 
@@ -417,13 +417,13 @@ pub async fn build_liquidation_tx(
 	fee_state: &FeeState,
   payer: &Keypair,
 	assets_to_withdraw: Vec<(AssetToWithdraw, Account)>,
-  swap_responses: Vec<(BuildInstructionsResponse, SwapPair, I80F48)>,
+  swap_responses: Vec<BuildInstructionsResponse>,
+	assets_to_repay: Vec<(SwapPair, Account, I80F48)>,
 ) -> anyhow::Result<()> {
 	let payer_pubkey = payer.pubkey();
-
   let (cu_price_ix, _) = swap_responses
     .iter()
-    .flat_map(|(s, _, _)| s.compute_budget_instructions.iter())
+    .flat_map(|s| s.compute_budget_instructions.iter())
     .filter(|ix| {
 			ix.program_id == solana_compute_budget_interface::ID
 				&& ix.data.first() == Some(&3u8)
@@ -440,7 +440,7 @@ pub async fn build_liquidation_tx(
 
   let lookup_tables: Vec<AddressLookupTableAccount> = swap_responses
 		.iter()
-		.flat_map(|(s, _, _)| {
+		.flat_map(|s| {
 			s.addresses_by_lookup_table_address
 				.clone()
 				.unwrap_or_default()
@@ -459,6 +459,7 @@ pub async fn build_liquidation_tx(
 		payer,
 		&swap_responses,
 		cu_price_ix.map(|ix| ix.clone()),
+		assets_to_repay,
 		assets_to_withdraw,
 		fee_state.global_fee_wallet
 	);
@@ -511,8 +512,9 @@ pub async fn build_liquidation_tx(
 fn build_liquidation_instructions(
 	user: &MarginfiUser,
 	payer: &Keypair,
-  swap_responses: &[(BuildInstructionsResponse, SwapPair, I80F48)],
+	swap_responses: &[BuildInstructionsResponse],
   cu_price_ix: Option<Instruction>,
+  assets_to_repay: Vec<(SwapPair, Account, I80F48)>,
 	assets_to_withdraw: Vec<(AssetToWithdraw, Account)>,
 	global_fee_wallet: Pubkey
 ) -> Vec<Instruction> {
@@ -564,7 +566,7 @@ fn build_liquidation_instructions(
   };
 
   let mut seen_setup = HashSet::new();
-  for (swap, _, _) in swap_responses {
+  for swap in swap_responses {
 		for ix in &swap.setup_instructions {
 			if seen_setup.insert(dedup_key(ix)) {
 				instructions.push(ix.clone());
@@ -574,12 +576,36 @@ fn build_liquidation_instructions(
 		}
   }
 
-  for (swap, _, _) in swap_responses {
+  for swap in swap_responses {
 		instructions.push(swap.swap_instruction.clone());
   }
 
+	let mut out_mint_grouped_outputs = HashMap::new();
+	for (pair, account, expected_output) in assets_to_repay {
+		out_mint_grouped_outputs.entry(pair.to_mint).or_insert((account, expected_output)).1 += expected_output;
+	}
+
+	for (mint, (mint_account, expected_output)) in out_mint_grouped_outputs {
+		let token_program = mint_account.owner;
+		
+		let signer_token_account = get_associated_token_address_with_program_id(
+			&payer.pubkey(),
+			&mint,
+			&token_program,
+		);
+
+		instructions.push(user.repay_ix(
+			payer.pubkey(),
+			bank_account,
+			signer_token_account,
+			token_program,
+			expected_output,
+			Some(false)
+		));
+	}
+
   let mut seen_cleanup = HashSet::new();
-  for (swap, _, _) in swap_responses {
+  for swap in swap_responses {
 		if let Some(ix) = &swap.cleanup_instruction {
 			if seen_cleanup.insert(dedup_key(ix)) {
 				instructions.push(ix.clone());
