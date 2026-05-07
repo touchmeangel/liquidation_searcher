@@ -95,6 +95,7 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 	let liability = account.liability_value()?;
 	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
+	// TODO: use smart contract for better accuracy
 	// TODO: the liquidation will pass as long as health improves which means theres no need to repay the whole loan
 	// TODO: profitability checks
 	// TODO:
@@ -535,6 +536,8 @@ fn build_liquidation_instructions(
   for swap in swap_responses {
 		instructions.push(swap.swap_instruction.clone());
   }
+
+
 
   let mut seen_cleanup = HashSet::new();
   for swap in swap_responses {
