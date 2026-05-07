@@ -36,11 +36,8 @@ async fn start(config: Config) -> anyhow::Result<()> {
   let fee_state = Arc::new(marginfi.get_fee_state().await?);
   let liquidation_max_fee: I80F48 = fee_state.liquidation_max_fee.into();
   let liquidation_flat_sol_fee: I80F48 = fee_state.liquidation_flat_sol_fee.into();
-	if liquidation_flat_sol_fee < config.safety_margin - 1.0 {
-  	println!("SAFETY_MARGIN is to high, for correct calculations it must be lower than liquidation_max_fee = {}%", liquidation_max_fee.checked_mul(I80F48::from_num(100)).unwrap_or(I80F48::ZERO));
-		return Ok(());
-	}
-  println!("FeeState is currently defined as liquidation_max_fee = {}% liquidation_flat_sol_fee = {} SOL", liquidation_max_fee.checked_mul(I80F48::from_num(100)).unwrap_or(I80F48::ZERO), liquidation_flat_sol_fee.checked_div(I80F48::from_num(1_000_000_000)).unwrap_or(I80F48::ZERO));
+
+	println!("FeeState is currently defined as liquidation_max_fee = {}% liquidation_flat_sol_fee = {} SOL", liquidation_max_fee.checked_mul(I80F48::from_num(100)).unwrap_or(I80F48::ZERO), liquidation_flat_sol_fee.checked_div(I80F48::from_num(1_000_000_000)).unwrap_or(I80F48::ZERO));
 
   let mut subredis = SubRedis::new(&config.pubsub_url).await?;
   println!("connection established, listening");
@@ -96,19 +93,23 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
   println!("RECEIVED {}", pubkey);
   let withdrawable_assets = account.withdrawable_asset_value()?;
 	let liability = account.liability_value()?;
-	let liability_with_safety = liability.checked_mul(I80F48::from_num(config.safety_margin))
-		.ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
+	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-	if withdrawable_assets.checked_sub(liability_with_safety)
-		.ok_or(anyhow::anyhow!("Math error at {}", line!()))? <= 0 {
-		println!("{} is deep in debt, not profitable to liquidate, consider lowering SAFETY_MARGIN if its to high ({})", pubkey, config.safety_margin);
+	// TODO: the liquidation will pass as long as health improves
+	// TODO: profitability checks
+	// TODO:
+	// /// Liquidators can consume/close out the entire account with essentially no limits (e.g. regardless
+	// /// of liquidation bonus, etc) if it has net assets worth less than this amount in dollars. This
+	// /// roughly covers the fee to open a liquidation record plus a little extra.
+	// pub const LIQUIDATION_CLOSEOUT_DOLLAR_THRESHOLD: I80F48 = I80F48!(5);
+	if seizable <= 0 {
+		println!("{} is deep in debt, not profitable to liquidate", pubkey);
     return anyhow::Ok(());
   }
   
-	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
   println!("{}$ to make, max {}$ (w: {}, l: {})", seizable, liability.checked_mul(fee_state.liquidation_max_fee.into()).unwrap_or(I80F48::ZERO), withdrawable_assets, liability);
 
-	let swaps = calculate_swap_pairs(&account, config.safety_margin)?;
+	let swaps = calculate_swap_pairs(&account)?;
 	let max_assets = liability
 		+ liability
 			.checked_mul(fee_state.liquidation_max_fee.into())
@@ -262,7 +263,7 @@ pub struct SwapPair {
 	pub from_amount_usd: I80F48
 }
 
-pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::Result<Vec<SwapPair>> {
+pub fn calculate_swap_pairs(user: &MarginfiUser) -> anyhow::Result<Vec<SwapPair>> {
 	let mut available = build_available_assets_map(&user);
 	let bank_accounts = user.bank_accounts();
 
@@ -319,7 +320,7 @@ pub fn calculate_swap_pairs(user: &MarginfiUser, safety_margin: f64) -> anyhow::
 		} else {
 			continue;
 		};
-		let usd_value_needed = remaining_needed_amount * unit_price * I80F48::from_num(safety_margin);
+		let usd_value_needed = remaining_needed_amount * unit_price;
 		
 		let mut sorted_available: Vec<_> = available
 			.iter()
