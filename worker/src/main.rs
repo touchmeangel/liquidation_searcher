@@ -578,8 +578,6 @@ fn build_liquidation_instructions(
 		instructions.push(swap.swap_instruction.clone());
   }
 
-
-
   let mut seen_cleanup = HashSet::new();
   for swap in swap_responses {
 		if let Some(ix) = &swap.cleanup_instruction {
