@@ -164,7 +164,7 @@ fn build_available_assets_map(user: &MarginfiUser) -> HashMap<Pubkey, AssetNode>
 }
 
 #[derive(Clone)]
-struct AssetToWithdraw {
+pub struct AssetToWithdraw {
 	pub mint: Pubkey,
 	pub amount: I80F48,
 	pub amount_usd: I80F48,
