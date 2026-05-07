@@ -95,7 +95,7 @@ async fn handle(config: Config, marginfi: &Marginfi, fee_state: &FeeState, pubke
 	let liability = account.liability_value()?;
 	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-	// TODO: the liquidation will pass as long as health improves
+	// TODO: the liquidation will pass as long as health improves which means theres no need to repay the whole loan
 	// TODO: profitability checks
 	// TODO:
 	// /// Liquidators can consume/close out the entire account with essentially no limits (e.g. regardless
