@@ -9,8 +9,7 @@ pub struct Config {
 	pub(crate) jup_swap_api_v2: String,
 	pub(crate) payer: Keypair,
   pub(crate) capacity: usize,
-  pub(crate) asset_haircut: f64,
-  pub(crate) asset_swap_haircut: f64,
+  pub(crate) asset_haircut: f64
 }
 
 impl Config {
@@ -24,7 +23,6 @@ impl Config {
 		let payer = Keypair::from_base58_string(&payer_string);
     let capacity = env_usize("CAPACITY", 1).context("invalid \"CAPACITY\" value")?;
     let asset_haircut = std::env::var("ASSET_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
-    let asset_swap_haircut = std::env::var("ASSET_SWAP_HAIRCUT").ok().filter(|s| !s.is_empty()).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.95);
     let config = Config {
       http_url,
       ws_url,
@@ -32,8 +30,7 @@ impl Config {
 			jup_swap_api_v2,
 			payer,
       capacity,
-      asset_haircut,
-      asset_swap_haircut
+      asset_haircut
     };
 
     Ok(config)
