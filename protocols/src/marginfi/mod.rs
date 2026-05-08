@@ -35,7 +35,7 @@ use crate::utils::parse_account;
 
 pub struct Marginfi {
   pubsub: PubsubClient,
-  rpc_client: RpcClient,
+  rpc_client: Arc<RpcClient>,
   client: Client<Arc<Keypair>>,
   program: Program<Arc<Keypair>>,
 }
@@ -46,13 +46,17 @@ impl Marginfi {
     let payer = Arc::new(Keypair::new());
     let client = Client::new(Cluster::Custom(http_url, ws_url), payer);
     let program = client.program(MARGINFI_PROGRAM_ID)?;
-    let rpc_client = program.rpc();
+    let rpc_client = Arc::new(program.rpc());
 
     anyhow::Ok(Self { pubsub, rpc_client, client, program })
   }
 
 	pub fn rpc_ref(&self) -> &RpcClient {
 		&self.rpc_client
+	}
+
+	pub fn rpc_arc_clone(&self) -> Arc<RpcClient> {
+		Arc::clone(&self.rpc_client)
 	}
 
   pub async fn get_all_accounts(&self) -> anyhow::Result<Vec<Pubkey>> {

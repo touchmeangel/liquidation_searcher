@@ -125,34 +125,23 @@ async fn handle(
 
 	let swaps = calculate_swap_pairs(&account)?;
 
-	let mut tasks = Vec::with_capacity(swaps.len());
-	for swap in swaps {
-		let quote_request = BuildRequest {
-			amount: swap.from_amount.to_num(),
-			input_mint: swap.from_mint,
-			output_mint: swap.to_mint,
-			taker: payer.pubkey(),
-			mode: Some(QuoteMode::Fast),
-			slippage_bps: Some(jupiter_swap_api_client::build::SlippageBps::Rtse),
-			..BuildRequest::default()
-		};
-
-		let jup_clone = Arc::clone(&jup_client);
-		tasks.push(tokio::spawn(async move {
-			(jup_clone.build(&quote_request).await, swap)
-		}));
-	}
-
-	let mut swaps = Vec::with_capacity(tasks.len());
-	let mut total_expected_output_usd = I80F48::ZERO;
-	for task in tasks {
-		let (result, pair) = task.await?;
-		let response = result?;
-		let unit_price = pair.from_amount_usd / pair.from_amount;
-		let expected_output = I80F48::from_num(response.out_amount) * I80F48::from_num(asset_haircut);
-		swaps.push((response, (pair, expected_output)));
-		total_expected_output_usd += expected_output * unit_price
-	}
+	let rpc_client_clone = marginfi.rpc_arc_clone();
+	let all_bank_mints = account.bank_accounts()
+		.iter()
+		.map(|b| b.bank.mint)
+		.collect();
+	let SwapFetchResult {
+		swap_entries,
+		mint_accounts,
+		total_expected_output_usd,
+	} = fetch_swaps_and_mint_accounts(
+		rpc_client_clone,
+		Arc::clone(&jup_client),
+		swaps,
+		all_bank_mints,
+		payer.pubkey(),
+		asset_haircut,
+	).await?;
 
 	let assets_needed = total_expected_output_usd
 		+ total_expected_output_usd
@@ -161,15 +150,33 @@ async fn handle(
 
 	let assets_to_withdraw = select_assets_to_withdraw(
 		&account,
-		swaps.iter().map(|(_, (pair, _))| pair).collect::<Vec<_>>(),
-		assets_needed
+		swap_entries.iter().map(|(_, pair, _)| pair).collect(),
+		assets_needed,
 	)?;
 
-	// let mint_pubkeys: Vec<Pubkey> = assets_to_withdraw.iter()
-	// 	.map(|a| a.mint)
-	// 	.collect();
-    
-	// let mint_accounts = rpc.get_multiple_accounts(&mint_pubkeys).await?;
+	let assets_to_withdraw: Vec<(AssetToWithdraw, Account)> = assets_to_withdraw
+		.into_iter()
+		.map(|asset| {
+			let mint_account = mint_accounts
+				.get(&asset.mint)
+				.ok_or(anyhow::anyhow!("Missing mint account for {}", asset.mint))?
+				.clone();
+			Ok((asset, mint_account))
+		})
+		.collect::<anyhow::Result<_>>()?;
+	
+	let (swap_responses, assets_to_repay): (Vec<BuildInstructionsResponse>, Vec<(SwapPair, Account, I80F48)>) = swap_entries
+		.into_iter()
+		.map(|(response, pair, expected_output)| {
+			let mint_account = mint_accounts
+				.get(&pair.to_mint)
+				.ok_or(anyhow::anyhow!("Missing mint account for {}", pair.to_mint))?
+				.clone();
+			Ok((response, (pair, mint_account, expected_output)))
+		})
+		.collect::<anyhow::Result<_>>()?;
+
+	let tx = build_liquidation_tx(marginfi.rpc_ref(), &account, fee_state, &payer, assets_to_withdraw, swap_responses, assets_to_repay).await?;
 
   // 3VzSmqcYQaKcA8vFoqW5batNPNWVvqpVXtFmKHse7SUE
   // AiC3orMdwW2hG9Xhv53nktgDwq4cLkqLAfMcNQFoXWoJ
@@ -185,6 +192,90 @@ async fn handle(
   // susdabGDNbhrnCa6ncrYo81u4s9GM8ecK2UwMyZiq4X: 51.69141136818984$
 
   Ok(())
+}
+
+pub struct SwapFetchResult {
+  pub swap_entries: Vec<(BuildInstructionsResponse, SwapPair, I80F48)>,
+  pub mint_accounts: HashMap<Pubkey, Account>,
+  pub total_expected_output_usd: I80F48,
+}
+
+/// Fetches Jupiter swap quotes and all mint accounts concurrently.
+/// Mint accounts are fetched for ALL bank account mints upfront since
+/// we don't yet know which assets will be selected for withdrawal.
+pub async fn fetch_swaps_and_mint_accounts(
+  rpc: Arc<RpcClient>,
+  jup_client: Arc<JupiterSwapApiClient>,
+  swaps: Vec<SwapPair>,
+  all_bank_mints: Vec<Pubkey>,
+  payer: Pubkey,
+  asset_haircut: f64,
+) -> anyhow::Result<SwapFetchResult> {
+  let unique_mints: Vec<Pubkey> = all_bank_mints
+    .into_iter()
+    .collect::<HashSet<_>>()
+    .into_iter()
+    .collect();
+
+  let rpc_clone = Arc::clone(&rpc);
+  let mints_clone = unique_mints.clone();
+  let mint_fetch = tokio::spawn(async move {
+    rpc_clone.get_multiple_accounts(&mints_clone).await
+  });
+
+  let jup_tasks: Vec<_> = swaps
+    .into_iter()
+    .map(|swap| {
+      let quote_request = BuildRequest {
+        amount: swap.from_amount.to_num(),
+        input_mint: swap.from_mint,
+        output_mint: swap.to_mint,
+        taker: payer,
+        mode: Some(QuoteMode::Fast),
+        slippage_bps: Some(jupiter_swap_api_client::build::SlippageBps::Rtse),
+        ..BuildRequest::default()
+      };
+
+      let jup = Arc::clone(&jup_client);
+      tokio::spawn(async move {
+        (jup.build(&quote_request).await, swap)
+      })
+    })
+    .collect();
+
+  let mut swap_entries = Vec::with_capacity(jup_tasks.len());
+  let mut total_expected_output_usd = I80F48::ZERO;
+
+  for task in jup_tasks {
+    let (result, pair) = task.await?;
+    let response = result?;
+
+    if pair.from_amount <= I80F48::ZERO {
+      anyhow::bail!("swap pair has zero from_amount for mint {}", pair.from_mint);
+    }
+
+    let unit_price = pair.from_amount_usd / pair.from_amount;
+    let expected_output = I80F48::from_num(response.out_amount)
+      * I80F48::from_num(asset_haircut);
+
+    total_expected_output_usd += expected_output * unit_price;
+    swap_entries.push((response, pair, expected_output));
+  }
+
+  let raw_accounts = mint_fetch.await??;
+  let mint_accounts: HashMap<Pubkey, Account> = unique_mints
+    .into_iter()
+    .zip(raw_accounts)
+    .filter_map(|(mint, maybe_account)| {
+      maybe_account.map(|account| (mint, account))
+    })
+    .collect();
+
+  Ok(SwapFetchResult {
+    swap_entries,
+    mint_accounts,
+    total_expected_output_usd,
+  })
 }
 
 #[derive(Clone)]
