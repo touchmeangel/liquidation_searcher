@@ -105,39 +105,39 @@ impl Redis {
     Ok((added_banks, accounts_added))
   }
 
-  const REM_ACCOUNTS_SCRIPT: &str = r#"
-    local accounts = KEYS
-    local account_key = ARGV[1]
-    local bank_key = ARGV[2]
+	const REM_ACCOUNTS_SCRIPT: &str = r#"
+		local accounts = KEYS
+		local account_key = ARGV[1]
+		local bank_key = ARGV[2]
 
-    local removed = 0
-    local removed_banks = {}
+		local removed = 0
+		local removed_banks = {}
 
-    for _, account in ipairs(accounts) do
-      local banks = redis.call('SMEMBERS', 'account:banks:' .. account)
+		for _, account in ipairs(accounts) do
+			local banks = redis.call('SMEMBERS', 'account:banks:' .. account)
 
-      for _, bank in ipairs(banks) do
-        redis.call('SREM', 'bank:accounts:' .. bank, account)
-      end
+			for _, bank in ipairs(banks) do
+				redis.call('SREM', 'bank:accounts:' .. bank, account)
+				
+				-- Check if this bank is now empty and clean it up
+				if redis.call('SCARD', 'bank:accounts:' .. bank) == 0 then
+					redis.call('SREM', bank_key, bank)
+					redis.call('DEL', 'bank:accounts:' .. bank)
+					table.insert(removed_banks, bank)
+				end
+			end
 
-      redis.call('DEL', 'account:banks:' .. account)
+			redis.call('DEL', 'account:banks:' .. account)
+			removed = removed + redis.call('SREM', account_key, account)
+		end
 
-      removed = removed + redis.call('SREM', account_key, account)
+		local result = { tostring(removed) }
+		for _, bank in ipairs(removed_banks) do
+			table.insert(result, bank)
+		end
 
-      if redis.call('SCARD', 'bank:accounts:' .. bank) == 0 then
-        redis.call('SREM', bank_key, bank)
-        redis.call('DEL', 'bank:accounts:' .. bank)
-        table.insert(removed_banks, bank)
-      end
-    end
-
-    local result = { tostring(removed) }
-    for _, bank in ipairs(removed_banks) do
-      table.insert(result, bank)
-    end
-
-    return result
-  "#;
+		return result
+	"#;
 
   pub async fn rem_multiple<'a, I>(&mut self, accounts: I) -> anyhow::Result<(Vec<Pubkey>, usize)>
     where I: IntoIterator<Item = &'a Pubkey> {
