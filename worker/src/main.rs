@@ -108,7 +108,6 @@ async fn handle(
 	let liability = account.liability_value()?;
 	let seizable = withdrawable_assets.checked_sub(liability).ok_or(anyhow::anyhow!("Math error at {}", line!()))?;
 
-	// TODO: use smart contract for better accuracy
 	// TODO: the liquidation will pass as long as health improves which means theres no need to repay the whole loan !!! FIX SITUATIONS WHERE WHOLE LIQUIDATION FAILS BECAUSE OF ONE TOKEN
 	// TODO: profitability checks after simulation
 	// TODO:
@@ -116,6 +115,7 @@ async fn handle(
 	// /// of liquidation bonus, etc) if it has net assets worth less than this amount in dollars. This
 	// /// roughly covers the fee to open a liquidation record plus a little extra.
 	// pub const LIQUIDATION_CLOSEOUT_DOLLAR_THRESHOLD: I80F48 = I80F48!(5);
+	// TODO: use smart contract for better accuracy
 	if seizable <= 0 {
 		println!("{} is deep in debt, not profitable to liquidate", pubkey);
     return anyhow::Ok(());
@@ -238,7 +238,12 @@ pub async fn fetch_swaps_and_mint_accounts(
 
       let jup = Arc::clone(&jup_client);
       tokio::spawn(async move {
-        (jup.build(&quote_request).await, swap)
+        (
+					jup.build(&quote_request)
+						.await
+						.map_err(|err| anyhow::anyhow!("Couldnt find a route for {} -> {} because of {}", quote_request.input_mint, quote_request.output_mint, err)),
+					swap
+				)
       })
     })
     .collect();
